@@ -113,7 +113,7 @@ if(WIN32)
 endif(WIN32)
 
 add_library(tf_core_kernels ${TF_OBJECTLIB} ${tf_core_kernels_srcs})
-add_dependencies(tf_core_kernels tf_core_cpu)
+add_dependencies(tf_core_kernels tf_core_cpu gemmlowp)
 
 if(WIN32)
   target_compile_options(tf_core_kernels PRIVATE /MP)
