@@ -58,23 +58,11 @@ foreach(tf_cc_op_lib_name ${tf_cc_op_lib_names})
           tf_protos_cc
           ${tensorflow_EXTERNAL_LIBRARIES}
       )
-
-      set(cc_ops_include_internal 0)
-      if(${tf_cc_op_lib_name} STREQUAL "sendrecv_ops")
-          set(cc_ops_include_internal 1)
-      endif()
-
-      add_custom_command(
-          OUTPUT ${cc_ops_target_dir}/${tf_cc_op_lib_name}.h
-                 ${cc_ops_target_dir}/${tf_cc_op_lib_name}.cc
-          COMMAND ${tf_cc_op_lib_name}_gen_cc ${cc_ops_target_dir}/${tf_cc_op_lib_name}.h ${cc_ops_target_dir}/${tf_cc_op_lib_name}.cc ${cc_ops_include_internal}
-          DEPENDS ${tf_cc_op_lib_name}_gen_cc create_cc_ops_header_dir
-      )
-      
-      list(APPEND tf_cc_ops_generated_files ${cc_ops_target_dir}/${tf_cc_op_lib_name}.h)
-      list(APPEND tf_cc_ops_generated_files ${cc_ops_target_dir}/${tf_cc_op_lib_name}.cc)
-    elseif( false ) #...mrmlj...!?
-      add_executable(${tf_cc_op_lib_name}_gen_cc)
+    else() #...mrmlj...!?
+        if( NOT EXISTS ${CMAKE_BINARY_DIR}/dummy.cc )
+            file( WRITE ${CMAKE_BINARY_DIR}/dummy.cc "static int emptyFunc() { return 0; }" )
+        endif()
+      add_executable(${tf_cc_op_lib_name}_gen_cc ${CMAKE_BINARY_DIR}/dummy.cc)
 
       target_link_libraries(${tf_cc_op_lib_name}_gen_cc PRIVATE
           tf_${tf_cc_op_lib_name}
@@ -85,6 +73,21 @@ foreach(tf_cc_op_lib_name ${tf_cc_op_lib_names})
           ${tensorflow_EXTERNAL_LIBRARIES}
       )
     endif()
+
+    set(cc_ops_include_internal 0)
+    if(${tf_cc_op_lib_name} STREQUAL "sendrecv_ops")
+        set(cc_ops_include_internal 1)
+    endif()
+
+    add_custom_command(
+        OUTPUT ${cc_ops_target_dir}/${tf_cc_op_lib_name}.h
+               ${cc_ops_target_dir}/${tf_cc_op_lib_name}.cc
+        COMMAND ${tf_cc_op_lib_name}_gen_cc ${cc_ops_target_dir}/${tf_cc_op_lib_name}.h ${cc_ops_target_dir}/${tf_cc_op_lib_name}.cc ${cc_ops_include_internal}
+        DEPENDS ${tf_cc_op_lib_name}_gen_cc create_cc_ops_header_dir
+    )
+
+    list(APPEND tf_cc_ops_generated_files ${cc_ops_target_dir}/${tf_cc_op_lib_name}.h)
+    list(APPEND tf_cc_ops_generated_files ${cc_ops_target_dir}/${tf_cc_op_lib_name}.cc)
 endforeach()
 
 

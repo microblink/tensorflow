@@ -9,7 +9,11 @@ set(png_INSTALL ${CMAKE_BINARY_DIR}/png/install)
 if(WIN32)
   set(png_STATIC_LIBRARIES ${CMAKE_BINARY_DIR}/png/install/lib/libpng12_static.lib)
 else()
-  set(png_STATIC_LIBRARIES ${CMAKE_BINARY_DIR}/png/install/lib/libpng12.a)
+    if( CMAKE_GENERATOR MATCHES "Xcode" )
+        set(png_STATIC_LIBRARIES ${CMAKE_BINARY_DIR}/png/install/lib/libpng12$<$<CONFIG:DEBUG>:d>.a)
+    else()
+        set(png_STATIC_LIBRARIES ${CMAKE_BINARY_DIR}/png/install/lib/libpng12.a)
+    endif()
 endif()
 
 set(png_HEADERS

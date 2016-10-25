@@ -10,6 +10,8 @@ set(jsoncpp_INCLUDES ${jsoncpp_BUILD})
 
 if(WIN32)
   set(jsoncpp_STATIC_LIBRARIES ${jsoncpp_BUILD}/${CMAKE_BUILD_TYPE}/jsoncpp.lib)
+elseif( APPLE AND CMAKE_GENERATOR MATCHES "Xcode" )
+    set(jsoncpp_STATIC_LIBRARIES ${jsoncpp_BUILD}/${CMAKE_BUILD_TYPE}/libjsoncpp.a)
 else()
   set(jsoncpp_STATIC_LIBRARIES ${jsoncpp_BUILD}/libjsoncpp.a)
 endif()

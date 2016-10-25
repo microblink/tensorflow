@@ -12,3 +12,4 @@ node_modules
 *.pyc
 __pycache__
 *.swp
+CMakeLists.txt.user
