@@ -43,5 +43,5 @@ if (tensorflow_ENABLE_GPU)
   list(APPEND tf_core_cpu_srcs ${tf_core_gpu_srcs})
 endif()
 
-add_library(tf_core_cpu OBJECT ${tf_core_cpu_srcs})
+add_library(tf_core_cpu ${TF_OBJECTLIB} ${tf_core_cpu_srcs})
 add_dependencies(tf_core_cpu tf_core_framework)

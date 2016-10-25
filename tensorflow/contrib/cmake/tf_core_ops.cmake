@@ -31,7 +31,7 @@ foreach(tf_op_lib_name ${tf_op_lib_names})
         "${tensorflow_source_dir}/tensorflow/core/ops/${tf_op_lib_name}.cc"
     )
 
-    add_library(tf_${tf_op_lib_name} OBJECT ${tf_${tf_op_lib_name}_srcs})
+    add_library(tf_${tf_op_lib_name} ${TF_OBJECTLIB} ${tf_${tf_op_lib_name}_srcs})
 
     add_dependencies(tf_${tf_op_lib_name} tf_core_framework)
 endforeach()
@@ -43,7 +43,7 @@ file(GLOB_RECURSE tf_user_ops_srcs
     "${tensorflow_source_dir}/tensorflow/core/user_ops/*.cc"
 )
 
-add_library(tf_user_ops OBJECT ${tf_user_ops_srcs})
+add_library(tf_user_ops ${TF_OBJECTLIB} ${tf_user_ops_srcs})
 
 add_dependencies(tf_user_ops tf_core_framework)
 
@@ -69,6 +69,6 @@ file(GLOB_RECURSE tf_core_ops_exclude_srcs
 
 list(REMOVE_ITEM tf_core_ops_srcs ${tf_core_ops_exclude_srcs}) 
 
-add_library(tf_core_ops OBJECT ${tf_core_ops_srcs})
+add_library(tf_core_ops ${TF_OBJECTLIB} ${tf_core_ops_srcs})
 
 add_dependencies(tf_core_ops tf_core_cpu)

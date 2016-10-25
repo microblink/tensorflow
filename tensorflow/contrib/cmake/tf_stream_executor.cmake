@@ -60,7 +60,7 @@ endif()
 #)
 #list(REMOVE_ITEM tf_stream_executor_srcs ${tf_stream_executor_test_srcs}) 
 
-add_library(tf_stream_executor OBJECT ${tf_stream_executor_srcs})
+add_library(tf_stream_executor ${TF_OBJECTLIB} ${tf_stream_executor_srcs})
 
 add_dependencies(tf_stream_executor
     tf_core_lib

@@ -112,7 +112,7 @@ if(WIN32)
   list(REMOVE_ITEM tf_core_gpu_kernels_srcs ${tf_core_gpu_kernels_exclude_srcs})
 endif(WIN32)
 
-add_library(tf_core_kernels OBJECT ${tf_core_kernels_srcs})
+add_library(tf_core_kernels ${TF_OBJECTLIB} ${tf_core_kernels_srcs})
 add_dependencies(tf_core_kernels tf_core_cpu)
 
 if(WIN32)

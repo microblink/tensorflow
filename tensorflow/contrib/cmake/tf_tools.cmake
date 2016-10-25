@@ -8,14 +8,19 @@ file(GLOB tf_tools_srcs
 
 set(proto_text "proto_text")
 
-add_executable(${proto_text}
-    ${tf_tools_srcs}
-    $<TARGET_OBJECTS:tf_core_lib>
-)
+if (tensorflow_SEPARATE_STATIC_LIBS)
+  add_executable(${proto_text} ${tf_tools_srcs})
+  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_core_lib)
+else()
+  add_executable(${proto_text}
+      ${tf_tools_srcs}
+      $<TARGET_OBJECTS:tf_core_lib>
+  )
 
-target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES})
+  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES})
+endif()
 
-add_dependencies(${proto_text}
-    tf_core_lib
-    grpc
-)
+add_dependencies(${proto_text} tf_core_lib)
+if (tensorflow_ENABLE_GRPC_SUPPORT)
+  add_dependencies(${proto_text} grpc)
+endif()

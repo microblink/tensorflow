@@ -22,11 +22,16 @@ cmake_policy(SET CMP0022 NEW)
 option(tensorflow_VERBOSE "Enable for verbose output" OFF)
 option(tensorflow_ENABLE_GPU "Enable GPU support" OFF)
 option(tensorflow_ENABLE_SSL_SUPPORT "Enable boringssl support" OFF)
-option(tensorflow_ENABLE_GRPC_SUPPORT "Enable gRPC support" ON)
+option(tensorflow_ENABLE_GRPC_SUPPORT "Enable gRPC support" OFF)
 option(tensorflow_BUILD_CC_EXAMPLE "Build the C++ tutorial example" ON)
-option(tensorflow_BUILD_PYTHON_BINDINGS "Build the Python bindings" ON)
+option(tensorflow_BUILD_PYTHON_BINDINGS "Build the Python bindings" OFF)
 option(tensorflow_BUILD_ALL_KERNELS "Build all OpKernels" ON)
-option(tensorflow_BUILD_CONTRIB_KERNELS "Build OpKernels from tensorflow/contrib/..." ON)
+option(tensorflow_BUILD_CONTRIB_KERNELS "Build OpKernels from tensorflow/contrib/..." OFF)
+option(tensorflow_SEPARATE_STATIC_LIBS "Create 'standard' static lib targets instead of 'object libs'" ON)
+
+if (NOT tensorflow_SEPARATE_STATIC_LIBS)
+  set(TF_OBJECTLIB OBJECT)
+endif()
 
 
 #Threads: defines CMAKE_THREAD_LIBS_INIT and adds -pthread compile option for
@@ -206,30 +211,35 @@ if(tensorflow_BUILD_PYTHON_BINDINGS)
   include(tf_python.cmake)
 endif()
 
-add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc"
-  $<TARGET_OBJECTS:tf_core_lib>
-  $<TARGET_OBJECTS:tf_core_cpu>
-  $<TARGET_OBJECTS:tf_core_framework>
-  $<TARGET_OBJECTS:tf_core_kernels>
-  $<TARGET_OBJECTS:tf_cc_framework>
-  $<TARGET_OBJECTS:tf_cc_ops>
-  $<TARGET_OBJECTS:tf_core_ops>
-  $<TARGET_OBJECTS:tf_core_direct_session>
-  $<$<BOOL:${tensorflow_ENABLE_GPU}>:$<TARGET_OBJECTS:tf_stream_executor>>
-  #$<TARGET_OBJECTS:tf_models_word2vec_ops>
-  #$<TARGET_OBJECTS:tf_core_distributed_runtime>
-)
+if (tensorflow_SEPARATE_STATIC_LIBS)
+  add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc" )
+  target_link_libraries( example_label_image
+      tf_cc_ops
+      tf_core_framework
+      tf_core_kernels
+      tf_core_lib
+      tf_core_ops
+      tf_protos_cc
+      ${tensorflow_EXTERNAL_LIBRARIES}
+  )
+else()
+  add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc"
+    $<TARGET_OBJECTS:tf_core_lib>
+    $<TARGET_OBJECTS:tf_core_cpu>
+    $<TARGET_OBJECTS:tf_core_framework>
+    $<TARGET_OBJECTS:tf_core_kernels>
+    $<TARGET_OBJECTS:tf_cc_framework>
+    $<TARGET_OBJECTS:tf_cc_ops>
+    $<TARGET_OBJECTS:tf_core_ops>
+    $<TARGET_OBJECTS:tf_core_direct_session>
+    $<$<BOOL:${tensorflow_ENABLE_GPU}>:$<TARGET_OBJECTS:tf_stream_executor>>
+    #$<TARGET_OBJECTS:tf_models_word2vec_ops>
+    #$<TARGET_OBJECTS:tf_core_distributed_runtime>
+  )
 
-target_link_libraries( example_label_image PUBLIC
-    tf_protos_cc
-    #${tf_core_gpu_kernels_lib}
-    ${tensorflow_EXTERNAL_LIBRARIES}
-) 
-
-#target_link_libraries( example_label_image
-#        tf_cc_ops
-#        tf_core_framework
-#        tf_core_kernels
-#        tf_core_lib
-#        tf_core_ops
-#)
+  target_link_libraries( example_label_image PUBLIC
+      tf_protos_cc
+      #${tf_core_gpu_kernels_lib}
+      ${tensorflow_EXTERNAL_LIBRARIES}
+  )
+endif()

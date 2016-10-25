@@ -15,6 +15,6 @@ file(GLOB_RECURSE tf_core_direct_session_test_srcs
 
 list(REMOVE_ITEM tf_core_direct_session_srcs ${tf_core_direct_session_test_srcs})
 
-add_library(tf_core_direct_session OBJECT ${tf_core_direct_session_srcs})
+add_library(tf_core_direct_session ${TF_OBJECTLIB} ${tf_core_direct_session_srcs})
 
 add_dependencies(tf_core_direct_session tf_core_cpu)

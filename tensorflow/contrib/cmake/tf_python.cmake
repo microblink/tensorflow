@@ -164,7 +164,7 @@ set(tf_python_op_gen_main_srcs
     "${tensorflow_source_dir}/tensorflow/python/framework/python_op_gen.h"
 )
 
-add_library(tf_python_op_gen_main OBJECT ${tf_python_op_gen_main_srcs})
+add_library(tf_python_op_gen_main ${TF_OBJECTLIB} ${tf_python_op_gen_main_srcs})
 
 add_dependencies(tf_python_op_gen_main tf_core_framework)
 
