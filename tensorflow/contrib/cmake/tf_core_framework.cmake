@@ -174,7 +174,7 @@ add_dependencies(tf_core_lib ${tensorflow_EXTERNAL_DEPENDENCIES} tf_protos_cc)
 # ${VERSION_INFO_CC} would cache, but it depends on a phony never produced
 # target.
 set(VERSION_INFO_CC ${tensorflow_source_dir}/tensorflow/core/util/version_info.cc)
-add_custom_target(force_rebuild_target DEPENDS ${VERSION_INFO_CC})
+add_custom_target(force_rebuild_target DEPENDS ${VERSION_INFO_CC}) # ALL
 add_custom_command(OUTPUT __force_rebuild COMMAND cmake -E echo)
 add_custom_command(OUTPUT
     ${VERSION_INFO_CC}

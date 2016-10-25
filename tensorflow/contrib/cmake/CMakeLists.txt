@@ -66,11 +66,11 @@ if(MSVC)
   add_definitions(/wd4267 /wd4244 /wd4800 /wd4503 /wd4554 /wd4996 /wd4348 /wd4018)
   add_definitions(/wd4099 /wd4146 /wd4267 /wd4305 /wd4307)
   add_definitions(/wd4715 /wd4722 /wd4723 /wd4838 /wd4309 /wd4334)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /Zi")
+  add_compile_options( /MP /Zi )
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-g -fno-exceptions -std=gnu++1z")
+  add_compile_options( -g -fno-exceptions -std=gnu++1z )
 endif()
 
 # External dependencies
@@ -222,6 +222,7 @@ if (tensorflow_SEPARATE_STATIC_LIBS)
       tf_protos_cc
       ${tensorflow_EXTERNAL_LIBRARIES}
   )
+  add_dependencies( example_label_image ${tensorflow_EXTERNAL_DEPENDENCIES} tf_protos_cc )
 else()
   add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc"
     $<TARGET_OBJECTS:tf_core_lib>

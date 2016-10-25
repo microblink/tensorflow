@@ -37,13 +37,13 @@ set(HIGHWAYHASH_INCLUDES
 )
 
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
-
+add_compile_options( -std=gnu++1z )
 add_library(highwayhash ${HIGHWAYHASH_SRCS})
 
 # C++11
-target_compile_features(highwayhash PRIVATE
-    cxx_rvalue_references
-)
+#target_compile_features(highwayhash PRIVATE
+#    cxx_rvalue_references
+#)
 
 install(TARGETS highwayhash
   LIBRARY DESTINATION lib COMPONENT RuntimeLibraries
