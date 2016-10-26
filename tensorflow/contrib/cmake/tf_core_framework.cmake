@@ -173,16 +173,18 @@ add_dependencies(tf_core_lib ${tensorflow_EXTERNAL_DEPENDENCIES} tf_protos_cc)
 # force_rebuild always runs forcing ${VERSION_INFO_CC} target to run
 # ${VERSION_INFO_CC} would cache, but it depends on a phony never produced
 # target.
-set(VERSION_INFO_CC ${tensorflow_source_dir}/tensorflow/core/util/version_info.cc)
-add_custom_target(force_rebuild_target DEPENDS ${VERSION_INFO_CC}) # ALL
-add_custom_command(OUTPUT __force_rebuild COMMAND cmake -E echo)
-add_custom_command(OUTPUT
-    ${VERSION_INFO_CC}
-    COMMAND ${PYTHON_EXECUTABLE} ${tensorflow_source_dir}/tensorflow/tools/git/gen_git_source.py
-    --raw_generate ${VERSION_INFO_CC}
-    DEPENDS __force_rebuild)
+if (false)
+  set(VERSION_INFO_CC ${tensorflow_source_dir}/tensorflow/core/util/version_info.cc)
+  add_custom_target(force_rebuild_target DEPENDS ${VERSION_INFO_CC}) # ALL
+  add_custom_command(OUTPUT __force_rebuild COMMAND cmake -E echo)
+  add_custom_command(OUTPUT
+      ${VERSION_INFO_CC}
+      COMMAND ${PYTHON_EXECUTABLE} ${tensorflow_source_dir}/tensorflow/tools/git/gen_git_source.py
+      --raw_generate ${VERSION_INFO_CC}
+      DEPENDS __force_rebuild)
 
-set(tf_version_srcs ${tensorflow_source_dir}/tensorflow/core/util/version_info.cc)
+  set(tf_version_srcs ${tensorflow_source_dir}/tensorflow/core/util/version_info.cc)
+endif()
 
 ########################################################
 # tf_core_framework library
