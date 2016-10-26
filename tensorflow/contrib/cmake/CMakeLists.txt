@@ -229,6 +229,7 @@ if (tensorflow_SEPARATE_STATIC_LIBS)
       tf_core_kernels
       tf_core_lib
       tf_core_ops
+      tf_core_direct_session
       tf_protos_cc
       ${tensorflow_EXTERNAL_LIBRARIES}
   )
