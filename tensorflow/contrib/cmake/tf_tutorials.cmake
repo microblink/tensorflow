@@ -6,6 +6,7 @@ if (tensorflow_SEPARATE_STATIC_LIBS)
   add_executable(tf_tutorials_example_trainer EXCLUDE_FROM_ALL ${tf_tutorials_example_trainer_srcs})
 
   target_link_libraries(tf_tutorials_example_trainer PUBLIC
+      ${wholearchive_linker_option}
       tf_core_lib
       tf_core_cpu
       tf_core_framework

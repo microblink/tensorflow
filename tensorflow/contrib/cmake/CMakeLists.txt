@@ -67,14 +67,17 @@ if(MSVC)
   add_definitions(/wd4099 /wd4146 /wd4267 /wd4305 /wd4307)
   add_definitions(/wd4715 /wd4722 /wd4723 /wd4838 /wd4309 /wd4334)
   add_compile_options( /MP /Zi )
-endif()
-
-if( APPLE )
-    add_compile_options( -Wno-deprecated-declarations )
+  set( wholearchive_linker_option -WHOLEARCHIVE )
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options( -g -fno-exceptions -std=gnu++1z )
+  if( APPLE )
+    add_compile_options( -Wno-deprecated-declarations )
+    set( wholearchive_linker_option -Wl,-all_load )
+  else()
+    set( wholearchive_linker_option -Wl,--whole-archive )
+  endif()
 endif()
 
 # External dependencies
@@ -218,7 +221,10 @@ endif()
 if (tensorflow_SEPARATE_STATIC_LIBS)
   add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc" )
   target_link_libraries( example_label_image
+      ${wholearchive_linker_option}
+      tf_cc_framework
       tf_cc_ops
+      tf_core_cpu
       tf_core_framework
       tf_core_kernels
       tf_core_lib
@@ -226,7 +232,8 @@ if (tensorflow_SEPARATE_STATIC_LIBS)
       tf_protos_cc
       ${tensorflow_EXTERNAL_LIBRARIES}
   )
-  add_dependencies( example_label_image ${tensorflow_EXTERNAL_DEPENDENCIES} tf_protos_cc )
+  add_dependencies( example_label_image ${tensorflow_EXTERNAL_DEPENDENCIES} )
+  link_directories( "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}" )
 else()
   add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc"
     $<TARGET_OBJECTS:tf_core_lib>
@@ -238,8 +245,6 @@ else()
     $<TARGET_OBJECTS:tf_core_ops>
     $<TARGET_OBJECTS:tf_core_direct_session>
     $<$<BOOL:${tensorflow_ENABLE_GPU}>:$<TARGET_OBJECTS:tf_stream_executor>>
-    #$<TARGET_OBJECTS:tf_models_word2vec_ops>
-    #$<TARGET_OBJECTS:tf_core_distributed_runtime>
   )
 
   target_link_libraries( example_label_image PUBLIC

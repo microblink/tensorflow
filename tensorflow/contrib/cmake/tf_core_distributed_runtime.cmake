@@ -48,7 +48,7 @@ add_executable(grpc_tensorflow_server
 
 if( tensorflow_SEPARATE_STATIC_LIBS )
     target_link_libraries(grpc_tensorflow_server PUBLIC
-        -Wl,--whole-archive
+        ${wholearchive_linker_option}
         tf_core_lib
         tf_core_cpu
         tf_core_framework
@@ -59,7 +59,6 @@ if( tensorflow_SEPARATE_STATIC_LIBS )
         tf_core_direct_session
         tf_core_distributed_runtime
         $<$<BOOL:${tensorflow_ENABLE_GPU}>:tf_stream_executor>
-        -Wl,--no-whole-archive
     )
 endif()
 

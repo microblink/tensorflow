@@ -10,7 +10,7 @@ set(proto_text "proto_text")
 
 if (tensorflow_SEPARATE_STATIC_LIBS)
   add_executable(${proto_text} ${tf_tools_srcs})
-  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_core_lib)
+  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} ${wholearchive_linker_option} tf_core_lib)
 else()
   add_executable(${proto_text}
       ${tf_tools_srcs}
