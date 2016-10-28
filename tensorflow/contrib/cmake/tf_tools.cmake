@@ -10,14 +10,14 @@ set(proto_text "proto_text")
 
 if (tensorflow_SEPARATE_STATIC_LIBS)
   add_executable(${proto_text} ${tf_tools_srcs})
-  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} ${wholearchive_linker_option} tf_core_lib)
+  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_protos_cc ${wholearchive_linker_option} tf_core_lib)
 else()
   add_executable(${proto_text}
       ${tf_tools_srcs}
       $<TARGET_OBJECTS:tf_core_lib>
   )
 
-  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES})
+  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_protos_cc)
 endif()
 
 add_dependencies(${proto_text} tf_core_lib)
