@@ -35,6 +35,7 @@ limitations under the License.
 #include <vector>
 
 #include "tensorflow/cc/ops/const_op.h"
+#include "tensorflow/cc/ops/io_ops.h"
 #include "tensorflow/cc/ops/image_ops.h"
 #include "tensorflow/cc/ops/standard_ops.h"
 #include "tensorflow/core/framework/graph.pb.h"
@@ -93,7 +94,7 @@ Status ReadTensorFromImageFile(string file_name, const int input_height,
 
   string input_name = "file_reader";
   string output_name = "normalized";
-  auto file_reader = ReadFile(root.WithOpName(input_name), file_name);
+  auto file_reader = tensorflow::ops::ReadFile(root.WithOpName(input_name), file_name);
   // Now try to figure out what kind of file it is and decode it.
   const int wanted_channels = 3;
   Output image_reader;
@@ -232,21 +233,23 @@ int main(int argc, char* argv[]) {
   // They define where the graph and input data is located, and what kind of
   // input the model expects. If you train your own model, or use something
   // other than GoogLeNet you'll need to update these.
-  string image = "tensorflow/examples/label_image/data/grace_hopper.jpg";
-  string graph =
-      "tensorflow/examples/label_image/data/"
-      "tensorflow_inception_graph.pb";
+//string image = "tensorflow/examples/label_image/data/grace_hopper.jpg";
+ // string graph =
+   //   "tensorflow/examples/label_image/data/"
+     // "tensorflow_inception_graph.pb";
   string labels =
-      "tensorflow/examples/label_image/data/"
+     "tensorflow/examples/label_image/data/"
       "imagenet_comp_graph_label_strings.txt";
-  int32 input_width = 299;
-  int32 input_height = 299;
+  int32 input_width = 133;
+  int32 input_height = 50;
   int32 input_mean = 128;
   int32 input_std = 128;
-  string input_layer = "Mul";
-  string output_layer = "softmax";
+  string input_layer = "INPUT_X";
+  string output_layer = "RESULT_SOFTMAX";
   bool self_test = false;
   string root_dir = "";
+  string image = "/Users/admin/kod/tf/tensorflow/examples/label_image/data/trained_ema/images/1.jpg";
+  string graph = "/Users/admin/kod/tf/tensorflow/examples/label_image/data/trained_ema/ema_model.pb";
   std::vector<Flag> flag_list = {
       Flag("image", &image, "image to be processed"),
       Flag("graph", &graph, "graph to be executed"),
@@ -302,9 +305,14 @@ int main(int argc, char* argv[]) {
   std::vector<Tensor> outputs;
   Status run_status = session->Run({{input_layer, resized_tensor}},
                                    {output_layer}, {}, &outputs);
+    
+    float* data = outputs.back().flat<float>().data();
   if (!run_status.ok()) {
     LOG(ERROR) << "Running model failed: " << run_status;
     return -1;
+  } else {
+      LOG(ERROR) << run_status;
+      LOG(ERROR) << data[0] << ", " << data[1] << ", " << data[2];
   }
 
   // This is for automated testing to make sure we get the expected result with
