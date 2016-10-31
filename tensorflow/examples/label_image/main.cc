@@ -53,6 +53,9 @@ limitations under the License.
 #include "tensorflow/core/public/session.h"
 #include "tensorflow/core/util/command_line_flags.h"
 
+#include "ElapsedTimer.hpp"
+#include "fast_executor.h"
+
 // These are all common classes it's handy to reference with no namespace.
 using tensorflow::Flag;
 using tensorflow::Tensor;
@@ -96,7 +99,7 @@ Status ReadTensorFromImageFile(string file_name, const int input_height,
   string output_name = "normalized";
   auto file_reader = tensorflow::ops::ReadFile(root.WithOpName(input_name), file_name);
   // Now try to figure out what kind of file it is and decode it.
-  const int wanted_channels = 3;
+  const int wanted_channels = 1;
   Output image_reader;
   if (tensorflow::StringPiece(file_name).ends_with(".png")) {
     image_reader = DecodePng(root.WithOpName("png_reader"), file_reader,
@@ -136,6 +139,21 @@ Status ReadTensorFromImageFile(string file_name, const int input_height,
   return Status::OK();
 }
 
+Status LoadGraph( std::string graph_file_name, std::unique_ptr< tensorflow::FastSession >* session) {
+    tensorflow::GraphDef graph_def;
+
+    Status load_graph_status =
+        ReadBinaryProto(tensorflow::Env::Default(), graph_file_name, &graph_def);
+    if (!load_graph_status.ok()) {
+      return tensorflow::errors::NotFound("Failed to load compute graph at '",
+                                          graph_file_name, "'");
+    }
+
+    session->reset( tensorflow::NewFastSession( graph_def ) );
+
+    return Status::OK();
+}
+
 // Reads a model graph definition from disk, and creates a session object you
 // can use to run it.
 Status LoadGraph(string graph_file_name,
@@ -147,7 +165,12 @@ Status LoadGraph(string graph_file_name,
     return tensorflow::errors::NotFound("Failed to load compute graph at '",
                                         graph_file_name, "'");
   }
-  session->reset(tensorflow::NewSession(tensorflow::SessionOptions()));
+  tensorflow::SessionOptions session_options;
+  session_options.config.set_log_device_placement( false );
+  session_options.config.set_intra_op_parallelism_threads( 8 );
+  session_options.config.set_inter_op_parallelism_threads( 1 );
+
+  session->reset( tensorflow::NewSession( session_options ) );
   Status session_create_status = (*session)->Create(graph_def);
   if (!session_create_status.ok()) {
     return session_create_status;
@@ -208,6 +231,59 @@ Status PrintTopLabels(const std::vector<Tensor>& outputs,
   return Status::OK();
 }
 
+// Analyzes the output of the Inception graph to retrieve the highest scores and
+// their positions in the tensor, which correspond to categories.
+Status GetTopLabels(const Tensor* output, int how_many_labels,
+                    Tensor* indices, Tensor* scores) {
+  auto root = tensorflow::Scope::NewRootScope();
+  using namespace ::tensorflow::ops;  // NOLINT(build/namespaces)
+
+  string output_name = "top_k";
+  TopKV2(root.WithOpName(output_name), *output, how_many_labels);
+  // This runs the GraphDef network definition that we've just constructed, and
+  // returns the results in the output tensors.
+  tensorflow::GraphDef graph;
+  TF_RETURN_IF_ERROR(root.ToGraphDef(&graph));
+
+  std::unique_ptr<tensorflow::Session> session(
+      tensorflow::NewSession(tensorflow::SessionOptions()));
+  TF_RETURN_IF_ERROR(session->Create(graph));
+  // The TopK node returns two outputs, the scores and their original indices,
+  // so we have to append :0 and :1 to specify them both.
+  std::vector<Tensor> out_tensors;
+  TF_RETURN_IF_ERROR(session->Run({}, {output_name + ":0", output_name + ":1"},
+                                  {}, &out_tensors));
+  *scores = out_tensors[0];
+  *indices = out_tensors[1];
+  return Status::OK();
+}
+
+// Given the output of a model run, and the name of a file containing the labels
+// this prints out the top five highest-scoring values.
+Status PrintTopLabels(const Tensor* output,
+                      string labels_file_name) {
+  std::vector<string> labels;
+  size_t label_count;
+  Status read_labels_status =
+      ReadLabelsFile(labels_file_name, &labels, &label_count);
+  if (!read_labels_status.ok()) {
+    LOG(ERROR) << read_labels_status;
+    return read_labels_status;
+  }
+  const int how_many_labels = std::min(5, static_cast<int>(label_count));
+  Tensor indices;
+  Tensor scores;
+  TF_RETURN_IF_ERROR(GetTopLabels(output, how_many_labels, &indices, &scores));
+  tensorflow::TTypes<float>::Flat scores_flat = scores.flat<float>();
+  tensorflow::TTypes<int32>::Flat indices_flat = indices.flat<int32>();
+  for (int pos = 0; pos < how_many_labels; ++pos) {
+    const int label_index = indices_flat(pos);
+    const float score = scores_flat(pos);
+    LOG(INFO) << labels[label_index] << " (" << label_index << "): " << score;
+  }
+  return Status::OK();
+}
+
 // This is a testing function that returns whether the top label index is the
 // one that's expected.
 Status CheckTopLabel(const std::vector<Tensor>& outputs, int expected,
@@ -233,110 +309,144 @@ int main(int argc, char* argv[]) {
   // They define where the graph and input data is located, and what kind of
   // input the model expects. If you train your own model, or use something
   // other than GoogLeNet you'll need to update these.
-//string image = "tensorflow/examples/label_image/data/grace_hopper.jpg";
- // string graph =
-   //   "tensorflow/examples/label_image/data/"
-     // "tensorflow_inception_graph.pb";
-  string labels =
-     "tensorflow/examples/label_image/data/"
-      "imagenet_comp_graph_label_strings.txt";
+  string labels = "tensorflow/imagenet_comp_graph_label_strings.txt";
   int32 input_width = 133;
   int32 input_height = 50;
-  int32 input_mean = 128;
-  int32 input_std = 128;
+  int32 input_mean = 0;
+  int32 input_std = 1;
   string input_layer = "INPUT_X";
   string output_layer = "RESULT_SOFTMAX";
   bool self_test = false;
   string root_dir = "";
-  string image = "/Users/admin/kod/tf/tensorflow/examples/label_image/data/trained_ema/images/1.jpg";
-  string graph = "/Users/admin/kod/tf/tensorflow/examples/label_image/data/trained_ema/ema_model.pb";
-  std::vector<Flag> flag_list = {
-      Flag("image", &image, "image to be processed"),
-      Flag("graph", &graph, "graph to be executed"),
-      Flag("labels", &labels, "name of file containing labels"),
-      Flag("input_width", &input_width, "resize image to this width in pixels"),
-      Flag("input_height", &input_height,
-           "resize image to this height in pixels"),
-      Flag("input_mean", &input_mean, "scale pixel values to this mean"),
-      Flag("input_std", &input_std, "scale pixel values to this std deviation"),
-      Flag("input_layer", &input_layer, "name of input layer"),
-      Flag("output_layer", &output_layer, "name of output layer"),
-      Flag("self_test", &self_test, "run a self test"),
-      Flag("root_dir", &root_dir,
-           "interpret image and graph file names relative to this directory"),
-  };
-  string usage = tensorflow::Flags::Usage(argv[0], flag_list);
-  const bool parse_result = tensorflow::Flags::Parse(&argc, argv, flag_list);
-  if (!parse_result) {
-    LOG(ERROR) << usage;
-    return -1;
-  }
+//  string image = "tensorflow/trained_ema/images/1.jpg";
+  std::string image_root = "tensorflow/trained_ema/images";
+  string graph = "tensorflow/trained_ema/ema_50_133.pb";
+//  std::vector<Flag> flag_list = {
+//      Flag("image", &image, "image to be processed"),
+//      Flag("graph", &graph, "graph to be executed"),
+//      Flag("labels", &labels, "name of file containing labels"),
+//      Flag("input_width", &input_width, "resize image to this width in pixels"),
+//      Flag("input_height", &input_height,
+//           "resize image to this height in pixels"),
+//      Flag("input_mean", &input_mean, "scale pixel values to this mean"),
+//      Flag("input_std", &input_std, "scale pixel values to this std deviation"),
+//      Flag("input_layer", &input_layer, "name of input layer"),
+//      Flag("output_layer", &output_layer, "name of output layer"),
+//      Flag("self_test", &self_test, "run a self test"),
+//      Flag("root_dir", &root_dir,
+//           "interpret image and graph file names relative to this directory"),
+//  };
+
+//  string usage = tensorflow::Flags::Usage(argv[0], flag_list);
+//  const bool parse_result = tensorflow::Flags::Parse(&argc, argv, flag_list);
+//  if (!parse_result) {
+//    LOG(ERROR) << usage;
+//    return -1;
+//  }
 
   // We need to call this to set up global state for TensorFlow.
   tensorflow::port::InitMain(argv[0], &argc, &argv);
-  if (argc > 1) {
-    LOG(ERROR) << "Unknown argument " << argv[1] << "\n" << usage;
-    return -1;
-  }
+//  if (argc > 1) {
+//    LOG(ERROR) << "Unknown argument " << argv[1] << "\n" << usage;
+//    return -1;
+//  }
 
   // First we load and initialize the model.
-  std::unique_ptr<tensorflow::Session> session;
   string graph_path = tensorflow::io::JoinPath(root_dir, graph);
+
+  std::unique_ptr<tensorflow::Session> session;
   Status load_graph_status = LoadGraph(graph_path, &session);
+
+//  std::unique_ptr< tensorflow::FastSession > session;
+//  Status load_graph_status = LoadGraph( graph_path, &session );
+
+
   if (!load_graph_status.ok()) {
     LOG(ERROR) << load_graph_status;
     return -1;
   }
 
-  // Get the image from disk as a float array of numbers, resized and normalized
-  // to the specifications the main graph expects.
-  std::vector<Tensor> resized_tensors;
-  string image_path = tensorflow::io::JoinPath(root_dir, image);
-  Status read_tensor_status =
-      ReadTensorFromImageFile(image_path, input_height, input_width, input_mean,
-                              input_std, &resized_tensors);
-  if (!read_tensor_status.ok()) {
-    LOG(ERROR) << read_tensor_status;
-    return -1;
-  }
-  const Tensor& resized_tensor = resized_tensors[0];
+  ElapsedTimer global_timer;
 
-  // Actually run the image through the model.
-  std::vector<Tensor> outputs;
-  Status run_status = session->Run({{input_layer, resized_tensor}},
-                                   {output_layer}, {}, &outputs);
-    
-    float* data = outputs.back().flat<float>().data();
-  if (!run_status.ok()) {
-    LOG(ERROR) << "Running model failed: " << run_status;
-    return -1;
-  } else {
-      LOG(ERROR) << run_status;
-      LOG(ERROR) << data[0] << ", " << data[1] << ", " << data[2];
+  double times = 0.0;
+  int num = 0;
+
+  for ( auto i = 0; i <= 51; ++i ) {
+      std::stringstream ss;
+      ss << image_root << '/' << i << ".jpg";
+      std::string image = ss.str();
+
+      LOG( INFO ) << "Running image " << image;
+
+      // Get the image from disk as a float array of numbers, resized and normalized
+      // to the specifications the main graph expects.
+      std::vector<Tensor> resized_tensors;
+      string image_path = tensorflow::io::JoinPath(root_dir, image);
+      Status read_tensor_status =
+          ReadTensorFromImageFile(image_path, input_height, input_width, input_mean,
+                                  input_std, &resized_tensors);
+      if (!read_tensor_status.ok()) {
+        LOG(ERROR) << read_tensor_status;
+        return -1;
+      }
+      const Tensor& resized_tensor = resized_tensors[0];
+
+      ElapsedTimer local_timer;
+
+      // Actually run the image through the model.
+      std::vector<Tensor> outputs;
+      Status run_status = session->Run({{input_layer, resized_tensor}},
+                                       {output_layer}, {}, &outputs);
+
+//      Tensor output { tensorflow::DT_FLOAT, tensorflow::TensorShape{ {1, 3} } };
+//      Status run_status = session->Run( resized_tensor, &output );
+
+//      float* data = outputs.back().flat<float>().data();
+
+      double tm = local_timer.toc();
+
+      if( i != 0 ) {
+          times += tm;
+          ++num;
+      }
+
+      LOG( INFO ) << "Model ran for " << local_timer.toc() << " ms";
+
+
+//      if (!run_status.ok()) {
+//        LOG(ERROR) << "Running model failed: " << run_status;
+//        return -1;
+//      } else {
+//          LOG(ERROR) << run_status;
+//          LOG(ERROR) << data[0] << ", " << data[1] << ", " << data[2];
+//      }
+
+      // This is for automated testing to make sure we get the expected result with
+      // the default settings. We know that label 866 (military uniform) should be
+      // the top label for the Admiral Hopper image.
+//      if (self_test) {
+//        bool expected_matches;
+//        Status check_status = CheckTopLabel(outputs, 866, &expected_matches);
+//        if (!check_status.ok()) {
+//          LOG(ERROR) << "Running check failed: " << check_status;
+//          return -1;
+//        }
+//        if (!expected_matches) {
+//          LOG(ERROR) << "Self-test failed!";
+//          return -1;
+//        }
+//      }
+
+      // Do something interesting with the results we've generated.
+      Status print_status = PrintTopLabels(outputs, labels);
+      if (!print_status.ok()) {
+        LOG(ERROR) << "Running print failed: " << print_status;
+        return -1;
+      }
   }
 
-  // This is for automated testing to make sure we get the expected result with
-  // the default settings. We know that label 866 (military uniform) should be
-  // the top label for the Admiral Hopper image.
-  if (self_test) {
-    bool expected_matches;
-    Status check_status = CheckTopLabel(outputs, 866, &expected_matches);
-    if (!check_status.ok()) {
-      LOG(ERROR) << "Running check failed: " << check_status;
-      return -1;
-    }
-    if (!expected_matches) {
-      LOG(ERROR) << "Self-test failed!";
-      return -1;
-    }
-  }
-
-  // Do something interesting with the results we've generated.
-  Status print_status = PrintTopLabels(outputs, labels);
-  if (!print_status.ok()) {
-    LOG(ERROR) << "Running print failed: " << print_status;
-    return -1;
-  }
+  LOG( INFO ) << "All images processed in " << global_timer.toc() << " ms";
+  LOG( INFO ) << "Average per image: " << ( times / static_cast< double >( num ) ) << " ms";
 
   return 0;
 }

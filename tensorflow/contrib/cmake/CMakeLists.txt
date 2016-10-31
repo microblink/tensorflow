@@ -221,7 +221,11 @@ if(tensorflow_BUILD_PYTHON_BINDINGS)
 endif()
 
 if (tensorflow_SEPARATE_STATIC_LIBS)
-  add_executable( example_label_image EXCLUDE_FROM_ALL "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc" )
+  add_executable( example_label_image EXCLUDE_FROM_ALL
+        "${tensorflow_source_dir}/tensorflow/examples/label_image/main.cc"
+        "${tensorflow_source_dir}/tensorflow/examples/label_image/ElapsedTimer.cpp"
+        "${tensorflow_source_dir}/tensorflow/examples/label_image/fast_executor.cc"
+    )
   target_link_libraries( example_label_image
       ${wholearchive_linker_option}
       tf_cc_framework
