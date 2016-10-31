@@ -310,8 +310,7 @@ int main(int argc, char* argv[]) {
   // input the model expects. If you train your own model, or use something
   // other than GoogLeNet you'll need to update these.
   string labels = "tensorflow/imagenet_comp_graph_label_strings.txt";
-  int32 input_width = 133;
-  int32 input_height = 50;
+
   int32 input_mean = 0;
   int32 input_std = 1;
   string input_layer = "INPUT_X";
@@ -319,8 +318,19 @@ int main(int argc, char* argv[]) {
   bool self_test = false;
   string root_dir = "";
 //  string image = "tensorflow/trained_ema/images/1.jpg";
+
+  int32 input_width = 133;
+  int32 input_height = 50;
   std::string image_root = "tensorflow/trained_ema/images";
   string graph = "tensorflow/trained_ema/ema_50_133.pb";
+  int img_count = 51;
+
+//  int32 input_width = 1330;
+//  int32 input_height = 500;
+//  std::string image_root = "tensorflow/trained_bigdora_grayscale/images";
+//  string graph = "tensorflow/trained_bigdora_grayscale/bigdora_model.pb";
+//  int img_count = 19;
+
 //  std::vector<Flag> flag_list = {
 //      Flag("image", &image, "image to be processed"),
 //      Flag("graph", &graph, "graph to be executed"),
@@ -371,7 +381,7 @@ int main(int argc, char* argv[]) {
   double times = 0.0;
   int num = 0;
 
-  for ( auto i = 0; i <= 51; ++i ) {
+  for ( auto i = 0; i <= img_count; ++i ) {
       std::stringstream ss;
       ss << image_root << '/' << i << ".jpg";
       std::string image = ss.str();
