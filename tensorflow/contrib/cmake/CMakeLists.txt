@@ -72,7 +72,7 @@ if(MSVC)
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options( -g -fno-exceptions -std=gnu++1z "$<$<CONFIG:Release>:-march=native -mtune=native -Ofast>" ) #-flto
+  add_compile_options( -g -fno-exceptions -std=gnu++1z $<$<CONFIG:Release>:-march=native> $<$<CONFIG:Release>:-mtune=native> $<$<CONFIG:Release>:-Ofast> ) #-flto
   if( APPLE )
     add_compile_options( -Wno-deprecated-declarations )
     set( wholearchive_linker_option -Wl,-all_load )
