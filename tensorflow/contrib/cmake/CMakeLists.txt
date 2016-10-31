@@ -7,6 +7,7 @@ project(tensorflow C CXX)
 # MicroBlink quick-fix for IDE generators
 if ( NOT CMAKE_BUILD_TYPE )
   set( CMAKE_BUILD_TYPE ${CMAKE_CFG_INTDIR} )
+  set( lib_suffix "$<$<CONFIG:DEBUG>:d>" )
 endif()
 
 # Actual source is the ../../.. directory
@@ -71,7 +72,7 @@ if(MSVC)
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options( -g -fno-exceptions -std=gnu++1z )
+  add_compile_options( -g -fno-exceptions -std=gnu++1z "$<$<CONFIG:Release>:-march=native -mtune=native -Ofast>" ) #-flto
   if( APPLE )
     add_compile_options( -Wno-deprecated-declarations )
     set( wholearchive_linker_option -Wl,-all_load )
