@@ -254,6 +254,12 @@ class ExecutorImpl : public Executor {
 
   void RunAsync(const Args& args, DoneCallback done) override;
 
+#ifdef TF_KERNEL_BENCHMARK
+  virtual Device* device() override {
+      return params_.device;
+  }
+#endif
+
  private:
   friend class ExecutorState;
 

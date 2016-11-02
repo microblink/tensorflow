@@ -56,6 +56,11 @@ limitations under the License.
 #include "ElapsedTimer.hpp"
 #include "fast_executor.h"
 
+#ifdef TF_KERNEL_BENCHMARK
+#include "tensorflow/core/common_runtime/direct_session.h"
+#include "tensorflow/core/common_runtime/threadpool_device.h"
+#endif
+
 // These are all common classes it's handy to reference with no namespace.
 using tensorflow::Flag;
 using tensorflow::Tensor;
@@ -319,17 +324,17 @@ int main(int argc, char* argv[]) {
   string root_dir = "";
 //  string image = "tensorflow/trained_ema/images/1.jpg";
 
-  int32 input_width = 133;
-  int32 input_height = 50;
-  std::string image_root = "tensorflow/trained_ema/images";
-  string graph = "tensorflow/trained_ema/ema_50_133.pb";
-  int img_count = 51;
+//  int32 input_width = 133;
+//  int32 input_height = 50;
+//  std::string image_root = "tensorflow/trained_ema/images";
+//  string graph = "tensorflow/trained_ema/ema_50_133.pb";
+//  int img_count = 51;
 
-//  int32 input_width = 1330;
-//  int32 input_height = 500;
-//  std::string image_root = "tensorflow/trained_bigdora_grayscale/images";
-//  string graph = "tensorflow/trained_bigdora_grayscale/bigdora_model.pb";
-//  int img_count = 19;
+  int32 input_width = 1330;
+  int32 input_height = 500;
+  std::string image_root = "tensorflow/trained_bigdora_grayscale/images";
+  string graph = "tensorflow/trained_bigdora_grayscale/bigdora_model.pb";
+  int img_count = 19;
 
 //  std::vector<Flag> flag_list = {
 //      Flag("image", &image, "image to be processed"),
@@ -457,6 +462,20 @@ int main(int argc, char* argv[]) {
 
   LOG( INFO ) << "All images processed in " << global_timer.toc() << " ms";
   LOG( INFO ) << "Average per image: " << ( times / static_cast< double >( num ) ) << " ms";
+
+#ifdef TF_KERNEL_BENCHMARK
+    // extract kernel times from threadpool_device
+    tensorflow::DirectSession* ds = static_cast< tensorflow::DirectSession* >( session.get() );
+    auto executors = ds->executors();
+    LOG( INFO ) << "There are " << executors.size() << " executors";
+    tensorflow::ThreadPoolDevice* tpdev = static_cast< tensorflow::ThreadPoolDevice* >( executors[0]->device() );
+    const auto& kernel_times = tpdev->kernel_times();
+
+    for( const auto& pair : kernel_times ) {
+        double avg = pair.second / num;
+        LOG( INFO ) << "Average for kernel " << pair.first << ": " << avg << " ms";
+    }
+#endif
 
   return 0;
 }

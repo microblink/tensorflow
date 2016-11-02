@@ -39,6 +39,14 @@ class ThreadPoolDevice : public LocalDevice {
 
  private:
   Allocator* allocator_;  // Not owned
+
+#ifdef TF_KERNEL_BENCHMARK
+  std::vector< std::pair< std::string, double > > kernel_times_;
+
+public:
+  const auto& kernel_times() const { return kernel_times_; }
+#endif
+
 };
 
 }  // namespace tensorflow

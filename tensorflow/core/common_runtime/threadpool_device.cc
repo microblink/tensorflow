@@ -27,6 +27,10 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/public/session_options.h"
 
+#ifdef TF_KERNEL_BENCHMARK
+#include "tensorflow/examples/label_image/ElapsedTimer.hpp"
+#endif
+
 namespace tensorflow {
 
 ThreadPoolDevice::ThreadPoolDevice(const SessionOptions& options,
@@ -48,7 +52,25 @@ void ThreadPoolDevice::Compute(OpKernel* op_kernel, OpKernelContext* context) {
                                          id);
     op_kernel->Compute(context);
   } else {
+#ifdef TF_KERNEL_BENCHMARK
+      ElapsedTimer timer;
+#endif
     op_kernel->Compute(context);
+#ifdef TF_KERNEL_BENCHMARK
+    double tm = timer.toc();
+    // first find pair in kernel_times_
+    // we need to do linear search because we want to maintain the order of kernels as they were invoked
+    // simply putting results into a map will change the ordering
+    size_t index;
+    for( index = 0; index < kernel_times_.size(); ++index ) {
+        if( kernel_times_[ index ].first == op_kernel->name() ) break;
+    }
+    if ( index < kernel_times_.size() ) {
+        kernel_times_[ index ].second += tm;
+    } else {
+        kernel_times_.emplace_back( op_kernel->name(), tm );
+    }
+#endif
   }
 }
 

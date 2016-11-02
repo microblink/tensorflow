@@ -101,6 +101,10 @@ class DirectSession : public Session {
     cost_model_manager_.ExportCostModels(cost_models);
   }
 
+#ifdef TF_KERNEL_BENCHMARK
+  std::vector< Executor* > executors();
+#endif
+
  private:
   typedef DirectSession ME;
 

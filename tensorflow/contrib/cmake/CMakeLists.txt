@@ -29,11 +29,15 @@ option(tensorflow_BUILD_PYTHON_BINDINGS "Build the Python bindings" OFF)
 option(tensorflow_BUILD_ALL_KERNELS "Build all OpKernels" ON)
 option(tensorflow_BUILD_CONTRIB_KERNELS "Build OpKernels from tensorflow/contrib/..." OFF)
 option(tensorflow_SEPARATE_STATIC_LIBS "Create 'standard' static lib targets instead of 'object libs'" ON)
+option(tensorflow_KERNEL_BENCHMARK "Calculate average run time of each kernel" OFF)
 
 if (NOT tensorflow_SEPARATE_STATIC_LIBS)
   set(TF_OBJECTLIB OBJECT)
 endif()
 
+if( tensorflow_KERNEL_BENCHMARK )
+    add_definitions( -DTF_KERNEL_BENCHMARK )
+endif()
 
 #Threads: defines CMAKE_THREAD_LIBS_INIT and adds -pthread compile option for
 # targets that link ${CMAKE_THREAD_LIBS_INIT}.

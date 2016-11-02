@@ -115,6 +115,10 @@ class Executor {
     n.WaitForNotification();
     return ret;
   }
+
+#ifdef TF_KERNEL_BENCHMARK
+    virtual Device* device() = 0;
+#endif
 };
 
 // Creates an Executor that computes the given "graph".

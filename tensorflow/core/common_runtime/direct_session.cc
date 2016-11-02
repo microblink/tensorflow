@@ -1178,4 +1178,17 @@ void DirectSession::WaitForNotification(RunState* run_state,
   }
 }
 
+#ifdef TF_KERNEL_BENCHMARK
+std::vector<tensorflow::Executor*> tensorflow::DirectSession::executors() {
+    std::vector< Executor* > executors;
+    mutex_lock l( executor_lock_ );
+    for( const auto& ek : executors_ ) {
+        for ( const auto& pek : ek.second->items ) {
+            executors.push_back( pek.executor.get() );
+        }
+    }
+    return executors;
+}
+#endif
+
 }  // namespace tensorflow
