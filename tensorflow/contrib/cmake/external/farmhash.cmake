@@ -33,8 +33,9 @@ else()
       URL ${farmhash_URL}
       URL_HASH ${farmhash_HASH}
       DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
-      BUILD_COMMAND $(MAKE)
-      INSTALL_COMMAND $(MAKE) install
+      BUILD_COMMAND make
+      INSTALL_COMMAND make . install
+      BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/farmhash/install/lib/libfarmhash.a
       CONFIGURE_COMMAND
           ${farmhash_BUILD}/configure
           --prefix=${farmhash_INSTALL}

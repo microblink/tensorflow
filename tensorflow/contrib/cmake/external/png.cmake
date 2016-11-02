@@ -30,6 +30,7 @@ ExternalProject_Add(png
         -DCMAKE_INSTALL_PREFIX:STRING=${png_INSTALL}
 	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON
 	-DZLIB_ROOT:STRING=${ZLIB_INSTALL}
+    BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/png/install/lib/libpng12.a
 )
 
 ## put png includes in the directory where they are expected

@@ -55,13 +55,14 @@ else()
         URL_HASH ${jpeg_HASH}
         INSTALL_DIR ${jpeg_INSTALL}
         DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
-        BUILD_COMMAND $(MAKE)
-        INSTALL_COMMAND $(MAKE) install
+        BUILD_COMMAND make
+        INSTALL_COMMAND make install
         CONFIGURE_COMMAND
             ${jpeg_BUILD}/configure
             --prefix=${jpeg_INSTALL}
             --enable-shared=yes
 	    CFLAGS=-fPIC
+        BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/jpeg/install/lib/libjpeg.a
     )
   
 endif()

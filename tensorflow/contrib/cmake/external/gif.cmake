@@ -46,13 +46,14 @@ else()
       URL_HASH ${gif_HASH}
       INSTALL_DIR ${gif_INSTALL}
       DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
-      BUILD_COMMAND $(MAKE)
-      INSTALL_COMMAND $(MAKE) install
+      BUILD_COMMAND make
+      INSTALL_COMMAND make install
       CONFIGURE_COMMAND
           ${CMAKE_CURRENT_BINARY_DIR}/gif/src/gif/configure
           --with-pic
           --prefix=${gif_INSTALL}
          --enable-shared=yes
+      BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/gif/install/lib/libgif.a
   )
 
 endif()

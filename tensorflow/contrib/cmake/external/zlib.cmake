@@ -30,6 +30,7 @@ ExternalProject_Add(zlib
         -DCMAKE_BUILD_TYPE:STRING=Release
         -DCMAKE_INSTALL_PREFIX:STRING=${ZLIB_INSTALL}
 	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON
+    BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/zlib/install/lib/libz.a
 )
 
 # put zlib includes in the directory where they are expected

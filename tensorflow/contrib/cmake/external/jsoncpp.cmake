@@ -33,5 +33,6 @@ ExternalProject_Add(jsoncpp
         -DCMAKE_BUILD_TYPE:STRING=Release
         -DCMAKE_VERBOSE_MAKEFILE:BOOL=OFF
 	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON
+    BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/jsoncpp/src/jsoncpp/src/lib_json/libjsoncpp.a
 )
 
