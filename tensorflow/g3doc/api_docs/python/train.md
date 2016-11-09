@@ -161,7 +161,8 @@ given variable.
 
 ##### Returns:
 
-  A list of (gradient, variable) pairs.
+  A list of (gradient, variable) pairs. Variable is always present, but
+  gradient can be `None`.
 
 ##### Raises:
 
@@ -743,6 +744,46 @@ to pretend that the value was a constant. Some examples include:
 
 
 
+- - -
+
+### `tf.hessians(ys, xs, name='hessians', colocate_gradients_with_ops=False, gate_gradients=False, aggregation_method=None)` {#hessians}
+
+Constructs the Hessian of sum of `ys` with respect to `x` in `xs`.
+
+`hessians()` adds ops to the graph to output the Hessian matrix of `ys`
+with respect to `xs`.  It returns a list of `Tensor` of length `len(xs)`
+where each tensor is the Hessian of `sum(ys)`. This function currently
+only supports evaluating the Hessian with respect to (a list of) one-
+dimensional tensors.
+
+The Hessian is a matrix of second-order partial derivatives of a scalar
+tensor (see https://en.wikipedia.org/wiki/Hessian_matrix for more details).
+
+##### Args:
+
+
+*  <b>`ys`</b>: A `Tensor` or list of tensors to be differentiated.
+*  <b>`xs`</b>: A `Tensor` or list of tensors to be used for differentiation.
+*  <b>`name`</b>: Optional name to use for grouping all the gradient ops together.
+    defaults to 'hessians'.
+*  <b>`colocate_gradients_with_ops`</b>: See `gradients()` documentation for details.
+*  <b>`gate_gradients`</b>: See `gradients()` documentation for details.
+*  <b>`aggregation_method`</b>: See `gradients()` documentation for details.
+
+##### Returns:
+
+  A list of Hessian matrices of `sum(y)` for each `x` in `xs`.
+
+##### Raises:
+
+
+*  <b>`LookupError`</b>: if one of the operations between `xs` and `ys` does not
+    have a registered gradient function.
+*  <b>`ValueError`</b>: if the arguments are invalid or not supported. Currently,
+    this function only supports one-dimensional `x` in `xs`.
+
+
+
 
 ## Gradient Clipping
 
@@ -980,7 +1021,7 @@ learning_step = (
     Must be positive.  See the decay computation above.
 *  <b>`decay_rate`</b>: A scalar `float32` or `float64` `Tensor` or a
     Python number.  The decay rate.
-*  <b>`staircase`</b>: Boolean.  It `True` decay the learning rate at discrete intervals
+*  <b>`staircase`</b>: Boolean.  If `True` decay the learning rate at discrete intervals
 *  <b>`name`</b>: String.  Optional name of the operation.  Defaults to
     'ExponentialDecay'.
 
@@ -1339,7 +1380,7 @@ The `apply()` method has to be called to create shadow variables and add
 ops to maintain moving averages.
 
 The optional `num_updates` parameter allows one to tweak the decay rate
-dynamically. .  It is typical to pass the count of training steps, usually
+dynamically. It is typical to pass the count of training steps, usually
 kept in a variable that is incremented at each step, in which case the
 decay rate is lower at the start of training.  This makes moving averages
 move faster.  If passed, the actual decay rate used is:
@@ -1365,7 +1406,8 @@ Maintains moving averages of variables.
 creates shadow variables for all elements of `var_list`.  Shadow variables
 for `Variable` objects are initialized to the variable's initial value.
 They will be added to the `GraphKeys.MOVING_AVERAGE_VARIABLES` collection.
-For `Tensor` objects, the shadow variables are initialized to 0.
+For `Tensor` objects, the shadow variables are initialized to 0 and zero
+debiased (see docstring in `assign_moving_average` for more details).
 
 shadow variables are created with `trainable=False` and added to the
 `GraphKeys.ALL_VARIABLES` collection.  They will be returned by calls to
@@ -1437,7 +1479,7 @@ Returns the `Variable` holding the average of `var`.
 ##### Returns:
 
   A `Variable` object or `None` if the moving average of `var`
-  is not maintained..
+  is not maintained.
 
 
 - - -
@@ -1825,19 +1867,19 @@ to all be the same op, but it is expected that they all enqueue tensors in
 
 #### `tf.train.QueueRunner.create_threads(sess, coord=None, daemon=False, start=False)` {#QueueRunner.create_threads}
 
-Create threads to run the enqueue ops.
+Create threads to run the enqueue ops for the given session.
 
 This method requires a session in which the graph was launched.  It creates
 a list of threads, optionally starting them.  There is one thread for each
 op passed in `enqueue_ops`.
 
-The `coord` argument is an optional coordinator, that the threads will use
+The `coord` argument is an optional coordinator that the threads will use
 to terminate together and report exceptions.  If a coordinator is given,
 this method starts an additional thread to close the queue when the
 coordinator requests a stop.
 
-This method may be called again as long as all threads from a previous call
-have stopped.
+If previously created threads for the given session are still running, no
+new threads will be created.
 
 ##### Args:
 
@@ -1852,12 +1894,6 @@ have stopped.
 ##### Returns:
 
   A list of threads.
-
-##### Raises:
-
-
-*  <b>`RuntimeError`</b>: If threads from a previous call to `create_threads()` are
-  still running.
 
 
 - - -
@@ -3400,7 +3436,7 @@ Returns a list of valid task indices in the given job.
 
 - - -
 
-### `tf.train.replica_device_setter(ps_tasks=0, ps_device='/job:ps', worker_device='/job:worker', merge_devices=True, cluster=None, ps_ops=None)` {#replica_device_setter}
+### `tf.train.replica_device_setter(ps_tasks=0, ps_device='/job:ps', worker_device='/job:worker', merge_devices=True, cluster=None, ps_ops=None, ps_strategy=None)` {#replica_device_setter}
 
 Return a `device function` to use when building a Graph for replicas.
 
@@ -3411,6 +3447,12 @@ outwards. The merging behavior adds constraints to fields that are yet unset
 by a more inner context. Currently the fields are (job, task, cpu/gpu).
 
 If `cluster` is `None`, and `ps_tasks` is 0, the returned function is a no-op.
+Otherwise, the value of `ps_tasks` is derived from `cluster`.
+
+By default, only Variable ops are placed on ps tasks, and the placement
+strategy is round-robin over all ps tasks. A custom `ps_strategy` may be used
+to do more intelligent placement, such as
+`tf.contrib.training.GreedyLoadBalancingStrategy`.
 
 For example,
 
@@ -3431,7 +3473,8 @@ with tf.device(tf.replica_device_setter(cluster=cluster_spec)):
 ##### Args:
 
 
-*  <b>`ps_tasks`</b>: Number of tasks in the `ps` job.
+*  <b>`ps_tasks`</b>: Number of tasks in the `ps` job.  Ignored if `cluster` is
+    provided.
 *  <b>`ps_device`</b>: String.  Device of the `ps` job.  If empty no `ps` job is used.
     Defaults to `ps`.
 *  <b>`worker_device`</b>: String.  Device of the `worker` job.  If empty no `worker`
@@ -3440,7 +3483,12 @@ with tf.device(tf.replica_device_setter(cluster=cluster_spec)):
     device constraint is completely unset. merges device specification rather
     than overriding them.
 *  <b>`cluster`</b>: `ClusterDef` proto or `ClusterSpec`.
-*  <b>`ps_ops`</b>: List of `Operation` objects that need to be placed on `ps` devices.
+*  <b>`ps_ops`</b>: List of strings representing `Operation` types that need to be
+    placed on `ps` devices.  If `None`, defaults to `["Variable"]`.
+*  <b>`ps_strategy`</b>: A callable invoked for every ps `Operation` (i.e. matched by
+    `ps_ops`), that takes the `Operation` and returns the ps task index to
+    use.  If `None`, defaults to a round-robin strategy across all `ps`
+    devices.
 
 ##### Returns:
 
@@ -3448,7 +3496,8 @@ with tf.device(tf.replica_device_setter(cluster=cluster_spec)):
 
 ##### Raises:
 
-  TypeError if `cluster` is not a dictionary or `ClusterDef` protocol buffer.
+  TypeError if `cluster` is not a dictionary or `ClusterDef` protocol buffer,
+  or if `ps_strategy` is provided but not a callable.
 
 
 - - -
@@ -4461,21 +4510,25 @@ such as saving a last checkpoint.
 
 ### `class tf.train.LoggingTensorHook` {#LoggingTensorHook}
 
-Prints given tensors every N iteration.
+Prints the given tensors once every N local steps or once every N seconds.
 
 The tensors will be printed to the log, with `INFO` severity.
 - - -
 
-#### `tf.train.LoggingTensorHook.__init__(tensors, every_n_iter=100)` {#LoggingTensorHook.__init__}
+#### `tf.train.LoggingTensorHook.__init__(tensors, every_n_iter=None, every_n_secs=None)` {#LoggingTensorHook.__init__}
 
 Initializes a LoggingHook monitor.
 
 ##### Args:
 
 
-*  <b>`tensors`</b>: `dict` of tag to tensors/names or
-      `iterable` of tensors/names.
-*  <b>`every_n_iter`</b>: `int`, print every N iteration.
+*  <b>`tensors`</b>: `dict` that maps string-valued tags to tensors/tensor names,
+      or `iterable` of tensors/tensor names.
+*  <b>`every_n_iter`</b>: `int`, print the values of `tensors` once every N local
+      steps taken on the current worker.
+*  <b>`every_n_secs`</b>: `int` or `float`, print the values of `tensors` once every N
+      seconds. Exactly one of `every_n_iter` and `every_n_secs` should be
+      provided.
 
 ##### Raises:
 

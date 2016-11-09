@@ -27,13 +27,14 @@ option(tensorflow_ENABLE_GRPC_SUPPORT "Enable gRPC support" OFF)
 option(tensorflow_BUILD_CC_EXAMPLE "Build the C++ tutorial example" ON)
 option(tensorflow_BUILD_PYTHON_BINDINGS "Build the Python bindings" OFF)
 option(tensorflow_BUILD_ALL_KERNELS "Build all OpKernels" ON)
-option(tensorflow_BUILD_CONTRIB_KERNELS "Build OpKernels from tensorflow/contrib/..." OFF)
+option(tensorflow_BUILD_CONTRIB_KERNELS "Build OpKernels from tensorflow/contrib/..." ON)
+option(tensorflow_BUILD_CC_TESTS "Build cc unit tests " OFF)
+option(tensorflow_BUILD_PYTHON_TESTS "Build python unit tests " OFF)
 option(tensorflow_SEPARATE_STATIC_LIBS "Create 'standard' static lib targets instead of 'object libs'" ON)
 
 if (NOT tensorflow_SEPARATE_STATIC_LIBS)
   set(TF_OBJECTLIB OBJECT)
 endif()
-
 
 #Threads: defines CMAKE_THREAD_LIBS_INIT and adds -pthread compile option for
 # targets that link ${CMAKE_THREAD_LIBS_INIT}.
@@ -92,6 +93,9 @@ include(jsoncpp)
 include(farmhash)
 include(highwayhash)
 include(protobuf)
+if (tensorflow_BUILD_CC_TESTS)
+  include(googletest)
+endif()
 
 set(tensorflow_EXTERNAL_LIBRARIES
     ${zlib_STATIC_LIBRARIES}
@@ -113,6 +117,7 @@ set(tensorflow_EXTERNAL_DEPENDENCIES
     highwayhash_copy_headers_to_destination
     protobuf
     eigen
+    gemmlowp
 )
 
 include_directories(
@@ -211,13 +216,16 @@ include(tf_core_kernels.cmake)
 if(tensorflow_ENABLE_GRPC_SUPPORT)
   include(tf_core_distributed_runtime.cmake)
 endif()
-
 include(tf_cc_ops.cmake)
 if(tensorflow_BUILD_CC_EXAMPLE)
   include(tf_tutorials.cmake)
+  include(tf_label_image_example.cmake)
 endif()
 if(tensorflow_BUILD_PYTHON_BINDINGS)
   include(tf_python.cmake)
+endif()
+if (tensorflow_BUILD_CC_TESTS OR tensorflow_BUILD_PYTHON_TESTS)
+  include(tf_tests.cmake)
 endif()
 
 if (tensorflow_SEPARATE_STATIC_LIBS)
@@ -260,3 +268,4 @@ else()
       ${tensorflow_EXTERNAL_LIBRARIES}
   )
 endif()
+

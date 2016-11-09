@@ -42,6 +42,15 @@ py_library(
 )
 
 py_library(
+    name = "stepper",
+    srcs = ["stepper.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":debug_data",
+    ],
+)
+
+py_library(
     name = "framework",
     srcs = ["wrappers/framework.py"],
     srcs_version = "PY2AND3",
@@ -89,6 +98,7 @@ py_library(
     deps = [
         ":command_parser",
         ":debugger_cli_common",
+        ":tensor_format",
     ],
 )
 
@@ -109,6 +119,13 @@ py_library(
 py_binary(
     name = "debug_fibonacci",
     srcs = ["examples/debug_fibonacci.py"],
+    srcs_version = "PY2AND3",
+    deps = ["//tensorflow:tensorflow_py"],
+)
+
+py_binary(
+    name = "debug_errors",
+    srcs = ["examples/debug_errors.py"],
     srcs_version = "PY2AND3",
     deps = ["//tensorflow:tensorflow_py"],
 )
@@ -154,6 +171,20 @@ py_test(
     ],
 )
 
+cuda_py_test(
+    name = "stepper_test",
+    size = "small",
+    srcs = [
+        "stepper_test.py",
+    ],
+    additional_deps = [
+        ":stepper",
+        "//tensorflow:tensorflow_py",
+        "//tensorflow/python:framework",
+        "//tensorflow/python:framework_test_lib",
+    ],
+)
+
 py_test(
     name = "framework_test",
     size = "small",
@@ -180,6 +211,7 @@ py_test(
     deps = [
         ":curses_ui",
         ":debugger_cli_common",
+        ":tensor_format",
         "//tensorflow/python:framework",
         "//tensorflow/python:framework_test_lib",
     ],

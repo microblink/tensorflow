@@ -6,6 +6,7 @@ Concat
 ConcatV2
 Const
 EditDistance
+ListDiff
 MirrorPad
 MirrorPadGrad
 OneHot
@@ -228,6 +229,11 @@ TruncatedNormal
 # script_ops
 PyFunc
 PyFuncStateless
+
+# sdca_ops
+SdcaFprint
+SdcaOptimizer
+SdcaShrinkL1
 
 # state_ops
 Variable

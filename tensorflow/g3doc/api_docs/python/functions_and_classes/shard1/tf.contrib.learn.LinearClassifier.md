@@ -6,21 +6,18 @@ classes. When number of possible classes is 2, this is binary classification.
 Example:
 
 ```python
-education = sparse_column_with_hash_bucket(column_name="education",
-                                           hash_bucket_size=1000)
-occupation = sparse_column_with_hash_bucket(column_name="occupation",
-                                            hash_bucket_size=1000)
+sparse_column_a = sparse_column_with_hash_bucket(...)
+sparse_column_b = sparse_column_with_hash_bucket(...)
 
-education_x_occupation = crossed_column(columns=[education, occupation],
-                                        hash_bucket_size=10000)
+sparse_feature_a_x_sparse_feature_b = crossed_column(...)
 
 # Estimator using the default optimizer.
 estimator = LinearClassifier(
-    feature_columns=[occupation, education_x_occupation])
+    feature_columns=[sparse_column_a, sparse_feature_a_x_sparse_feature_b])
 
 # Or estimator using the FTRL optimizer with regularization.
 estimator = LinearClassifier(
-    feature_columns=[occupation, education_x_occupation],
+    feature_columns=[sparse_column_a, sparse_feature_a_x_sparse_feature_b],
     optimizer=tf.train.FtrlOptimizer(
       learning_rate=0.1,
       l1_regularization_strength=0.001
@@ -28,7 +25,7 @@ estimator = LinearClassifier(
 
 # Or estimator using the SDCAOptimizer.
 estimator = LinearClassifier(
-   feature_columns=[occupation, education_x_occupation],
+   feature_columns=[sparse_column_a, sparse_feature_a_x_sparse_feature_b],
    optimizer=tf.contrib.linear_optimizer.SDCAOptimizer(
      example_id_column='example_id',
      num_loss_partitions=...,
@@ -73,7 +70,7 @@ Construct a `LinearClassifier` estimator object.
 *  <b>`model_dir`</b>: Directory to save model parameters, graph and etc. This can
     also be used to load checkpoints from the directory into a estimator
     to continue training a previously saved model.
-*  <b>`n_classes`</b>: number of target classes. Default is binary classification.
+*  <b>`n_classes`</b>: number of label classes. Default is binary classification.
 *  <b>`weight_column_name`</b>: A string defining feature column name representing
     weights. It is used to down weight or boost examples during training. It
     will be multiplied by the loss of the example.
@@ -93,8 +90,8 @@ Construct a `LinearClassifier` estimator object.
 
 *  <b>`config`</b>: `RunConfig` object to configure the runtime settings.
 *  <b>`feature_engineering_fn`</b>: Feature engineering function. Takes features and
-                    targets which are the output of `input_fn` and
-                    returns features and targets which will be fed
+                    labels which are the output of `input_fn` and
+                    returns features and labels which will be fed
                     into the model.
 
 ##### Returns:

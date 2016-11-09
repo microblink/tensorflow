@@ -13,7 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-import {DataSet, MetadataInfo, PCA_SAMPLE_DIM, Projection, SAMPLE_SIZE, State} from './data';
+import {DataSet, SpriteAndMetadataInfo, PCA_SAMPLE_DIM, Projection, SAMPLE_SIZE, State} from './data';
+import {Vector} from './vector';
 import * as vector from './vector';
 import {Projector} from './vz-projector';
 import {ProjectorInput} from './vz-projector-input';
@@ -44,12 +45,16 @@ export let ProjectionsPanelPolymer = PolymerElement({
 type InputControlName = 'xLeft' | 'xRight' | 'yUp' | 'yDown';
 
 type CentroidResult = {
-  centroid?: number[]; numMatches?: number;
+  centroid?: Vector;
+  numMatches?: number;
 };
 
 type Centroids = {
-  [key: string]: number[]; xLeft: number[]; xRight: number[]; yUp: number[];
-  yDown: number[];
+  [key: string]: Vector;
+  xLeft: Vector;
+  xRight: Vector;
+  yUp: Vector;
+  yDown: Vector;
 };
 
 /**
@@ -133,7 +138,7 @@ export class ProjectionsPanel extends ProjectionsPanelPolymer {
     this.polymerChangesTriggerReprojection = true;
   }
 
-  private updateTSNEPerplexityFromUIChange() {
+  private updateTSNEPerplexityFromSliderChange() {
     if (this.perplexitySlider) {
       this.perplexity = +this.perplexitySlider.value;
     }
@@ -161,8 +166,8 @@ export class ProjectionsPanel extends ProjectionsPanelPolymer {
 
     this.perplexitySlider.value = this.perplexity.toString();
     this.perplexitySlider.addEventListener(
-        'change', () => this.updateTSNEPerplexityFromUIChange());
-    this.updateTSNEPerplexityFromUIChange();
+        'change', () => this.updateTSNEPerplexityFromSliderChange());
+    this.updateTSNEPerplexityFromSliderChange();
 
     this.learningRateInput.addEventListener(
         'change', () => this.updateTSNELearningRateFromUIChange());
@@ -217,7 +222,7 @@ export class ProjectionsPanel extends ProjectionsPanelPolymer {
     this.computeAllCentroids();
 
     this.setZDropdownEnabled(this.pcaIs3d);
-    this.updateTSNEPerplexityFromUIChange();
+    this.updateTSNEPerplexityFromSliderChange();
     this.updateTSNELearningRateFromUIChange();
     if (this.iterationLabel) {
       this.iterationLabel.text(bookmark.tSNEIteration.toString());
@@ -284,6 +289,10 @@ export class ProjectionsPanel extends ProjectionsPanelPolymer {
     this.dataSet = dataSet;
     this.originalDataSet = originalDataSet;
     this.dim = dim;
+    let perplexity =
+        Math.max(5, Math.ceil(Math.sqrt(dataSet.points.length) / 4));
+    this.perplexitySlider.value = perplexity.toString();
+    this.updateTSNEPerplexityFromSliderChange();
     this.clearCentroids();
 
     this.dom.select('#tsne-sampling')
@@ -302,10 +311,10 @@ export class ProjectionsPanel extends ProjectionsPanelPolymer {
     this.beginProjection(this.currentProjection);
   }
 
-  metadataChanged(metadata: MetadataInfo) {
+  metadataChanged(spriteAndMetadata: SpriteAndMetadataInfo) {
     // Project by options for custom projections.
     let searchByMetadataIndex = -1;
-    this.searchByMetadataOptions = metadata.stats.map((stats, i) => {
+    this.searchByMetadataOptions = spriteAndMetadata.stats.map((stats, i) => {
       // Make the default label by the first non-numeric column.
       if (!stats.isNumeric && searchByMetadataIndex === -1) {
         searchByMetadataIndex = i;

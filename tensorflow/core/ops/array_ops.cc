@@ -151,7 +151,7 @@ Status SetOutputShapeForReshape(InferenceContext* c) {
         TF_RETURN_IF_ERROR(c->Multiply(known_elems, dim, &known_elems));
       }
     }
-    if (!too_many_unknown) {
+    if (!too_many_unknown && c->Value(known_elems) != 0) {
       DimensionHandle inferred_dim;
       TF_RETURN_IF_ERROR(c->Divide(num_in_elems, c->Value(known_elems),
                                    true /* evenly_divisible */, &inferred_dim));
@@ -1252,7 +1252,12 @@ REGISTER_OP("Identity")
     .Input("input: T")
     .Output("output: T")
     .Attr("T: type")
-    .SetShapeFn(shape_inference::UnchangedShape)
+    .SetShapeFn([](shape_inference::InferenceContext* c) {
+      c->set_output(0, c->input(0));
+      c->set_output_handle_dtype(0, c->input_handle_dtype(0));
+      c->set_output_handle_shape(0, c->input_handle_shape(0));
+      return Status::OK();
+    })
     .Doc(R"Doc(
 Return a tensor with the same shape and contents as the input tensor or value.
 )Doc");
@@ -4382,11 +4387,101 @@ output_min: This value is copied from input_min.
 output_max: This value is copied from input_max.
 )Doc");
 
+REGISTER_OP("ScatterNd")
+    .Input("indices: Tindices")
+    .Input("updates: T")
+    .Input("shape: Tindices")
+    .Output("output: T")
+    .Attr("T: type")
+    .Attr("Tindices: {int32, int64}")
+    .Doc(
+        R"doc(Creates a new tensor by applying sparse `updates` to individual
+values or slices within a zero tensor of the given `shape` tensor according to
+indices.  This operator is the inverse of the [tf.gather_nd](#gather_nd)
+operator which extracts values or slices from a given tensor.
+
+TODO(simister): Add a link to Variable.__getitem__ documentation on slice
+syntax.
+
+`shape` is a `TensorShape` with rank `P` and `indices` is a `Tensor` of rank
+`Q`.
+
+`indices` must be integer tensor, containing indices into `shape`.
+It must be shape `[d_0, ..., d_{Q-2}, K]` where `0 < K <= P`.
+
+The innermost dimension of `indices` (with length `K`) corresponds to
+indices into elements (if `K = P`) or slices (if `K < P`) along the `K`th
+dimension of `shape`.
+
+`updates` is Tensor of rank `Q-1+P-K` with shape:
+
+```
+[d_0, ..., d_{Q-2}, shape[K], ..., shape[P-1]].
+```
+
+The simplest form of scatter is to insert individual elements in a tensor by
+index. For example, say we want to insert 4 scattered elements in a rank-1
+tensor with 8 elements.
+
+<div style="width:70%; margin:auto; margin-bottom:10px; margin-top:20px;">
+<img style="width:100%" src="../../images/ScatterNd1.png" alt>
+</div>
+
+In Python, this scatter operation would look like this:
+
+    indices = tf.constant([[4], [3], [1], [7]])
+    updates = tf.constant([9, 10, 11, 12])
+    shape = tf.constant([8])
+    scatter = tf.scatter_nd(indices, updates, shape)
+    with tf.Session() as sess:
+      print sess.run(scatter)
+
+The resulting tensor would look like this:
+
+    [0, 11, 0, 10, 9, 0, 0, 12]
+
+We can also, insert entire slices of a higher rank tensor all at once. For
+example, if we wanted to insert two slices in the first dimension of a
+rank-3 tensor with two matrices of new values.
+
+<div style="width:70%; margin:auto; margin-bottom:10px; margin-top:20px;">
+<img style="width:100%" src="../../images/ScatterNd2.png" alt>
+</div>
+
+In Python, this scatter operation would look like this:
+
+    indices = tf.constant([[0], [2]])
+    updates = tf.constant([[[5, 5, 5, 5], [6, 6, 6, 6],
+                            [7, 7, 7, 7], [8, 8, 8, 8]],
+                           [[5, 5, 5, 5], [6, 6, 6, 6],
+                            [7, 7, 7, 7], [8, 8, 8, 8]]])
+    shape = tf.constant([4, 4, 4])
+    scatter = tf.scatter_nd(indices, updates, shape)
+    with tf.Session() as sess:
+      print sess.run(scatter)
+
+The resulting tensor would look like this:
+
+    [[[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+     [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+     [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+     [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]]
+
+indices: A Tensor. Must be one of the following types: int32, int64.
+  A tensor of indices into ref.
+updates: A Tensor. Must have the same type as tensor. A tensor of updated values
+  to store in ref.
+shape: A vector. The shape of the resulting tensor.
+output: A new tensor with the given shape and updates applied according
+  to the indices.
+)doc");
+
 REGISTER_OP("FakeQuantWithMinMaxArgs")
     .Attr("min: float = -6.0")
     .Attr("max: float = 6.0")
     .Input("inputs: float")
     .Output("outputs: float")
+    .SetShapeFn(shape_inference::UnchangedShape)
     .Doc(R"doc(
 Fake-quantize the 'inputs' tensor, type float to 'outputs' tensor of same type.
 
@@ -4403,6 +4498,7 @@ REGISTER_OP("FakeQuantWithMinMaxArgsGradient")
     .Input("gradients: float")
     .Input("inputs: float")
     .Output("backprops: float")
+    .SetShapeFn(shape_inference::UnchangedShape)
     .Doc(R"doc(
 Compute gradients for a FakeQuantWithMinMaxArgs operation.
 
@@ -4417,6 +4513,13 @@ REGISTER_OP("FakeQuantWithMinMaxVars")
     .Input("min: float")
     .Input("max: float")
     .Output("outputs: float")
+    .SetShapeFn([](InferenceContext* c) {
+      TF_RETURN_IF_ERROR(shape_inference::UnchangedShape(c));
+      ShapeHandle unused;
+      TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 0, &unused));
+      TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 0, &unused));
+      return Status::OK();
+    })
     .Doc(R"doc(
 Fake-quantize the 'inputs' tensor of type float and shape `[b, h, w, d]` via
 global float scalars `min` and `max` to 'outputs' tensor of same shape as
@@ -4437,6 +4540,21 @@ REGISTER_OP("FakeQuantWithMinMaxVarsGradient")
     .Output("backprops_wrt_input: float")
     .Output("backprop_wrt_min: float")
     .Output("backprop_wrt_max: float")
+    .SetShapeFn([](InferenceContext* c) {
+      // gradients and inputs are same size.
+      ShapeHandle inputs;
+      TF_RETURN_IF_ERROR(c->Merge(c->input(0), c->input(1), &inputs));
+
+      // min and max are scalars
+      ShapeHandle min_max;
+      TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 0, &min_max));
+      TF_RETURN_IF_ERROR(c->Merge(min_max, c->input(3), &min_max));
+
+      c->set_output(0, inputs);
+      c->set_output(1, min_max);
+      c->set_output(2, min_max);
+      return Status::OK();
+    })
     .Doc(R"doc(
 Compute gradients for a FakeQuantWithMinMaxVars operation.
 
@@ -4456,6 +4574,20 @@ REGISTER_OP("FakeQuantWithMinMaxVarsPerChannel")
     .Input("min: float")
     .Input("max: float")
     .Output("outputs: float")
+    .SetShapeFn([](InferenceContext* c) {
+      ShapeHandle input, min, max;
+      TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(0), 1, &input));
+      TF_RETURN_IF_ERROR(c->WithRank(c->input(1), 1, &min));
+      TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 1, &max));
+
+      DimensionHandle unused;
+      TF_RETURN_IF_ERROR(c->Merge(c->Dim(input, -1), c->Dim(min, 0), &unused));
+      TF_RETURN_IF_ERROR(c->Merge(c->Dim(input, -1), c->Dim(max, 0), &unused));
+      TF_RETURN_IF_ERROR(c->Merge(c->Dim(min, 0), c->Dim(max, 0), &unused));
+
+      c->set_output(0, input);
+      return Status::OK();
+    })
     .Doc(R"doc(
 Fake-quantize the 'inputs' tensor of type float and one of the shapes: `[d]`,
 `[b, d]` `[b, h, w, d]` via per-channel floats `min` and `max` of shape `[d]`
@@ -4476,6 +4608,24 @@ REGISTER_OP("FakeQuantWithMinMaxVarsPerChannelGradient")
     .Output("backprops_wrt_input: float")
     .Output("backprop_wrt_min: float")
     .Output("backprop_wrt_max: float")
+    .SetShapeFn([](InferenceContext* c) {
+      ShapeHandle inputs;
+      TF_RETURN_IF_ERROR(c->WithRankAtLeast(c->input(0), 1, &inputs));
+      TF_RETURN_IF_ERROR(c->WithRankAtMost(inputs, 4, &inputs));
+      TF_RETURN_IF_ERROR(c->Merge(inputs, c->input(1), &inputs));
+
+      ShapeHandle last_dim = c->Vector(c->Dim(inputs, -1));
+
+      ShapeHandle min_max;
+      TF_RETURN_IF_ERROR(c->WithRank(c->input(2), 1, &min_max));
+      TF_RETURN_IF_ERROR(c->Merge(min_max, last_dim, &min_max));
+      TF_RETURN_IF_ERROR(c->Merge(c->input(3), min_max, &min_max));
+
+      c->set_output(0, inputs);
+      c->set_output(1, min_max);
+      c->set_output(2, min_max);
+      return Status::OK();
+    })
     .Doc(R"doc(
 Compute gradients for a FakeQuantWithMinMaxVarsPerChannel operation.
 

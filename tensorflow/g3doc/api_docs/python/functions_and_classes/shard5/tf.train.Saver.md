@@ -72,7 +72,7 @@ protocol buffer file in the call to `save()`.
 
 - - -
 
-#### `tf.train.Saver.__init__(var_list=None, reshape=False, sharded=False, max_to_keep=5, keep_checkpoint_every_n_hours=10000.0, name=None, restore_sequentially=False, saver_def=None, builder=None, defer_build=False, allow_empty=False, write_version=1, pad_step_number=False)` {#Saver.__init__}
+#### `tf.train.Saver.__init__(var_list=None, reshape=False, sharded=False, max_to_keep=5, keep_checkpoint_every_n_hours=10000.0, name=None, restore_sequentially=False, saver_def=None, builder=None, defer_build=False, allow_empty=False, write_version=2, pad_step_number=False)` {#Saver.__init__}
 
 Creates a `Saver`.
 
@@ -225,12 +225,6 @@ The `save_path` argument is typically a value previously returned from a
 *  <b>`sess`</b>: A `Session` to use to restore the parameters.
 *  <b>`save_path`</b>: Path where parameters were previously saved.
 
-##### Raises:
-
-
-*  <b>`ValueError`</b>: DEPRECATED, do not rely on this Error.  If the given
-    `save_path` does not point to a file.
-
 
 
 Other utility methods.
@@ -305,7 +299,7 @@ Builds saver_def.
 
 - - -
 
-#### `tf.train.Saver.export_meta_graph(filename=None, collection_list=None, as_text=False, export_scope=None)` {#Saver.export_meta_graph}
+#### `tf.train.Saver.export_meta_graph(filename=None, collection_list=None, as_text=False, export_scope=None, clear_devices=False)` {#Saver.export_meta_graph}
 
 Writes `MetaGraphDef` to save_path/filename.
 
@@ -316,6 +310,8 @@ Writes `MetaGraphDef` to save_path/filename.
 *  <b>`collection_list`</b>: List of string keys to collect.
 *  <b>`as_text`</b>: If `True`, writes the meta_graph as an ASCII proto.
 *  <b>`export_scope`</b>: Optional `string`. Name scope to remove.
+*  <b>`clear_devices`</b>: Whether or not to clear the device field for an `Operation`
+    or `Tensor` during export.
 
 ##### Returns:
 

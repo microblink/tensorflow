@@ -19,9 +19,11 @@ import * as scatterPlot from './scatterPlot';
 import {shuffle, getSearchPredicate, runAsyncTask} from './util';
 import * as logging from './logging';
 import * as vector from './vector';
+import {SpriteMetadata} from './data-provider';
 
 export type DistanceFunction = (a: number[], b: number[]) => number;
 export type PointAccessor = (index: number) => number;
+export type PointAccessors3D = [PointAccessor, PointAccessor, PointAccessor];
 
 export interface PointMetadata {
   [key: string]: number | string;
@@ -49,16 +51,16 @@ export interface ColumnStats {
   max: number;
 }
 
-export interface MetadataInfo {
-  stats: ColumnStats[];
-  pointsInfo: PointMetadata[];
+export interface SpriteAndMetadataInfo {
+  stats?: ColumnStats[];
+  pointsInfo?: PointMetadata[];
   spriteImage?: HTMLImageElement;
-  datasetInfo?: DatasetMetadata;
+  spriteMetadata?: SpriteMetadata;
 }
 
 export interface DataPoint extends scatterPlot.DataPoint {
   /** The point in the original space. */
-  vector: number[];
+  vector: Float32Array;
 
   /*
    * Metadata for each point. Each metadata is a set of key/value pairs
@@ -102,7 +104,7 @@ const TRACE_METADATA_ATTR = '__next__';
  * requires normalizing and shifting the vector space, we make a copy of the
  * data so we can still always create new subsets based on the original data.
  */
-export class DataSet implements scatterPlot.DataSet {
+export class DataSet {
   points: DataPoint[];
   traces: scatterPlot.DataTrace[];
 
@@ -117,20 +119,21 @@ export class DataSet implements scatterPlot.DataSet {
   nearestK: number;
   tSNEIteration: number = 0;
   tSNEShouldStop = true;
-  dim = [0, 0];
+  dim: [number, number] = [0, 0];
   hasTSNERun: boolean = false;
-  spriteImage: HTMLImageElement;
-  datasetInfo: DatasetMetadata;
+  spriteAndMetadataInfo: SpriteAndMetadataInfo;
 
   private tsne: TSNE;
 
   /** Creates a new Dataset */
-  constructor(points: DataPoint[]) {
+  constructor(points: DataPoint[],
+      spriteAndMetadataInfo?: SpriteAndMetadataInfo) {
     this.points = points;
     this.sampledDataIndices =
         shuffle(d3.range(this.points.length)).slice(0, SAMPLE_SIZE);
     this.traces = this.computeTraces(points);
     this.dim = [this.points.length, this.points[0].vector.length];
+    this.spriteAndMetadataInfo = spriteAndMetadataInfo;
   }
 
   private computeTraces(points: DataPoint[]) {
@@ -196,7 +199,7 @@ export class DataSet implements scatterPlot.DataSet {
     return accessors;
   }
 
-  hasMeaningfulVisualization(projection: Projection): boolean {
+  projectionCanBeRendered(projection: Projection): boolean {
     if (projection !== 'tsne') {
       return true;
     }
@@ -219,12 +222,10 @@ export class DataSet implements scatterPlot.DataSet {
         metadata: dp.metadata,
         index: dp.index,
         vector: dp.vector.slice(),
-        projectedPoint: [0, 0, 0] as [number, number, number],
         projections: {} as {[key: string]: number}
       };
     });
-
-    return new DataSet(points);
+    return new DataSet(points, this.spriteAndMetadataInfo);
   }
 
   /**
@@ -346,14 +347,13 @@ export class DataSet implements scatterPlot.DataSet {
     });
   }
 
-  mergeMetadata(metadata: MetadataInfo) {
+  mergeMetadata(metadata: SpriteAndMetadataInfo) {
     if (metadata.pointsInfo.length !== this.points.length) {
       logging.setWarningMessage(
           `Number of tensors (${this.points.length}) do not match` +
           ` the number of lines in metadata (${metadata.pointsInfo.length}).`);
     }
-    this.spriteImage = metadata.spriteImage;
-    this.datasetInfo = metadata.datasetInfo;
+    this.spriteAndMetadataInfo = metadata;
     metadata.pointsInfo.slice(0, this.points.length)
         .forEach((m, i) => this.points[i].metadata = m);
   }
@@ -389,23 +389,6 @@ export class DataSet implements scatterPlot.DataSet {
   }
 }
 
-export interface DatasetMetadata {
-  /**
-   * Metadata for an associated image sprite. The sprite should be a matrix
-   * of smaller images, filled in a row-by-row order.
-   *
-   * E.g. the image for the first data point should be in the upper-left
-   * corner, and to the right of it should be the image of the second data
-   * point.
-   */
-  image?: {
-    /** The file path pointing to the sprite image. */
-    sprite_fpath: string;
-    /** The dimensions of the image for a single data point. */
-    single_image_dim: [number, number];
-  };
-}
-
 export type Projection = 'tsne' | 'pca' | 'custom';
 
 export interface ColorOption {
@@ -432,6 +415,9 @@ export class State {
 
   /** The selected projection tab. */
   selectedProjection: Projection;
+
+  /** Dimensions of the DataSet. */
+  dataSetDimensions: [number, number];
 
   /** t-SNE parameters */
   tSNEIteration: number = 0;

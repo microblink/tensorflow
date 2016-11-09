@@ -8,7 +8,7 @@ set(ZLIB_TAG 50893291621658f355bc5b4d450a8d06a563053d)
 
 if(WIN32)
   set(zlib_STATIC_LIBRARIES
-      ${CMAKE_CURRENT_BINARY_DIR}/zlib/install/lib/zlib${lib_suffix}.lib)
+      ${CMAKE_CURRENT_BINARY_DIR}/zlib/install/lib/zlibstatic${lib_suffix}.lib)
 else()
   set(zlib_STATIC_LIBRARIES
       ${CMAKE_CURRENT_BINARY_DIR}/zlib/install/lib/libz.a)
@@ -30,7 +30,6 @@ ExternalProject_Add(zlib
         -DCMAKE_BUILD_TYPE:STRING=Release
         -DCMAKE_INSTALL_PREFIX:STRING=${ZLIB_INSTALL}
 	-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON
-    BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/zlib/install/lib/libz.a
 )
 
 # put zlib includes in the directory where they are expected
