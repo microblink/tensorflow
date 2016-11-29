@@ -321,8 +321,8 @@ int main(int argc, char* argv[]) {
 
   int32 input_width = 133;
   int32 input_height = 50;
-  std::string image_root = "tensorflow/trained_ema/images";
-  string graph = "tensorflow/trained_ema/ema_50_133.pb";
+  std::string image_root = "test_data/images";
+  std::string graph      = "NeuralNetworkModel/OcrFilter/ema_50_133/model.tf";
   int img_count = 51;
 
 //  int32 input_width = 1330;
