@@ -14,3 +14,4 @@ node_modules
 __pycache__
 *.swp
 CMakeLists.txt.user
+version_info.cc
