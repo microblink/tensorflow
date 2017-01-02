@@ -42,6 +42,7 @@ class ThreadPoolDevice : public LocalDevice {
 
 #ifdef TF_KERNEL_BENCHMARK
   std::vector< std::pair< std::string, double > > kernel_times_;
+  std::set< std::string > already_seen_;
 
 public:
   const auto& kernel_times() const { return kernel_times_; }
