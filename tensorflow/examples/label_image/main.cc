@@ -104,7 +104,7 @@ Status ReadLabelsFile(string file_name, std::vector<string>* result,
 // resize it to the requested size, and then scale the values as desired.
 Status ReadTensorFromImageFile(string file_name, const int input_height,
                                const int input_width, const float input_mean,
-                               const float input_std,
+                               const float input_std, const int wanted_channels,
                                std::vector<Tensor>* out_tensors) {
   auto root = tensorflow::Scope::NewRootScope();
   using namespace ::tensorflow::ops;  // NOLINT(build/namespaces)
@@ -113,7 +113,6 @@ Status ReadTensorFromImageFile(string file_name, const int input_height,
   string output_name = "normalized";
   auto file_reader = tensorflow::ops::ReadFile(root.WithOpName(input_name), file_name);
   // Now try to figure out what kind of file it is and decode it.
-  const int wanted_channels = 1;
   Output image_reader;
   if (tensorflow::StringPiece(file_name).ends_with(".png")) {
     image_reader = DecodePng(root.WithOpName("png_reader"), file_reader,
@@ -244,7 +243,11 @@ Status PrintTopLabels(const std::vector<Tensor>& outputs,
   for (int pos = 0; pos < how_many_labels; ++pos) {
     const int label_index = indices_flat(pos);
     const float score = scores_flat(pos);
-    LOG(INFO) << labels[label_index] << " (" << label_index << "): " << score;
+    if( label_index >= labels.size() ) {
+        LOG( INFO ) << "Index outside of labels file: " << label_index << ": " << score;
+    } else {
+        LOG(INFO) << labels[label_index] << " (" << label_index << "): " << score;
+    }
   }
   return Status::OK();
 }
@@ -373,7 +376,10 @@ void print_help() {
             "                        --input-size=widthxheight \n"
             "                        --img-folder=path/to/images/folder \n"
             "                        --input-layer-name=INPUT_LAYER_NAME \n"
-            "                        --output-layer-name=OUTPUT_LAYER_NAME \n" );
+            "                        --output-layer-name=OUTPUT_LAYER_NAME \n"
+            "                       [--wanted-input-channels=3] \n"
+            "                       [--input-mean=0] \n"
+            "                       [--input-std=1] \n" );
 }
 
 int main(int argc, char* argv[]) {
@@ -388,6 +394,9 @@ int main(int argc, char* argv[]) {
   std::string image_root = params.getParam( "img-folder" );
   std::string labels = params.getParam( "model-labels" );
   std::string graph_path = params.getParam( "model" );
+  std::string input_channels_str = params.getParam( "wanted-input-channels" );
+  std::string input_mean_str = params.getParam( "input-mean" );
+  std::string input_std_str = params.getParam( "input-std" );
 
   auto required_params = { input_layer, output_layer, input_dim, image_root, labels, graph_path };
   if( std::any_of( required_params.begin(), required_params.end(), []( const auto& str ) { return str.empty(); } ) ) {
@@ -407,6 +416,19 @@ int main(int argc, char* argv[]) {
 
   int32 input_width = atoi( w_str.c_str() );
   int32 input_height = atoi( h_str.c_str() );
+
+  int wanted_input_channels = 3;
+  if ( !input_channels_str.empty() ) {
+    wanted_input_channels = atoi( input_channels_str.c_str() );
+  }
+
+  if ( !input_mean_str.empty() ) {
+      input_mean = atoi( input_mean_str.c_str() );
+  }
+
+  if ( !input_std_str.empty() ) {
+      input_std = atoi( input_std_str.c_str() );
+  }
 
 //  bool self_test = false;
 //  string root_dir = "";
@@ -489,7 +511,7 @@ int main(int argc, char* argv[]) {
 //      string image_path = tensorflow::io::JoinPath(root_dir, image);
       Status read_tensor_status =
           ReadTensorFromImageFile(image_path, input_height, input_width, input_mean,
-                                  input_std, &resized_tensors);
+                                  input_std, wanted_input_channels, &resized_tensors);
       if (!read_tensor_status.ok()) {
         LOG(ERROR) << read_tensor_status;
         return -1;
@@ -502,6 +524,11 @@ int main(int argc, char* argv[]) {
       std::vector<Tensor> outputs;
       Status run_status = session->Run({{input_layer, resized_tensor}},
                                        {output_layer}, {}, &outputs);
+
+      if ( !run_status.ok() ) {
+          LOG( ERROR ) << "There was error running the model: " << run_status;
+          return 1;
+      }
 
 //      Tensor output { tensorflow::DT_FLOAT, tensorflow::TensorShape{ {1, 3} } };
 //      Status run_status = session->Run( resized_tensor, &output );
