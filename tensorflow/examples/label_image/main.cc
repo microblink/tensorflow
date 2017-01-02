@@ -200,6 +200,10 @@ Status GetTopLabels(const std::vector<Tensor>& outputs, int how_many_labels,
   using namespace ::tensorflow::ops;  // NOLINT(build/namespaces)
 
   string output_name = "top_k";
+  if( outputs.size() < 1 ) {
+      LOG( ERROR ) << "Network did not produce a single output!";
+      return Status{ tensorflow::error::Code::NOT_FOUND, "Outputs size is 0!" };
+  }
   TopKV2(root.WithOpName(output_name), outputs[0], how_many_labels);
   // This runs the GraphDef network definition that we've just constructed, and
   // returns the results in the output tensors.
