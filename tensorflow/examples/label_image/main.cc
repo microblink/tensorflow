@@ -54,11 +54,20 @@ limitations under the License.
 #include "tensorflow/core/util/command_line_flags.h"
 
 #include "ElapsedTimer.hpp"
+#include "CLParameters.hpp"
 #include "fast_executor.h"
 
 #ifdef TF_KERNEL_BENCHMARK
 #include "tensorflow/core/common_runtime/direct_session.h"
 #include "tensorflow/core/common_runtime/threadpool_device.h"
+#endif
+
+#ifdef _MSC_VER
+#include <Windows.h>
+#else
+#include <sys/stat.h>       // for stat, mkdir, S_ISDIR
+#include <unistd.h>         // for mkstemp, ssize_t, unlink
+#include <dirent.h>         // for dirent, closedir, opendir, readdir, DIR
 #endif
 
 // These are all common classes it's handy to reference with no namespace.
@@ -309,19 +318,94 @@ Status CheckTopLabel(const std::vector<Tensor>& outputs, int expected,
   return Status::OK();
 }
 
+void list_files_in_folder( const std::string& folderName, std::vector<std::string>& files ) {
+#if !defined _WIN32 && !defined _WIN64
+    DIR* d;
+    struct dirent* dirent;
+    struct stat fstat;
+
+    d = opendir(folderName.c_str());
+    if (!d) {
+        LOG( ERROR ) << "Invalid directory " << folderName;
+    } else {
+        while ((dirent = readdir(d)) != NULL) {
+            std::string filename(dirent->d_name);
+            if (filename == "." || filename == "..") continue;
+            filename = folderName + "/" + filename;
+            if (stat(filename.c_str(), &fstat) < 0) continue;
+            if (!S_ISDIR(fstat.st_mode)) {
+                files.push_back(filename);
+            }
+        }
+
+        closedir(d);
+    }
+//#elif WINAPI_FAMILY != WINAPI_FAMILY_PHONE_APP
+#elif WINAPI_FAMILY == WINAPI_FAMILY_DESKTOP_APP
+    HANDLE hFind = INVALID_HANDLE_VALUE;
+    WIN32_FIND_DATA ffd;
+    std::stringstream ss;
+    ss << folderName << "\\*";
+
+    hFind = FindFirstFile(ss.str().c_str(), &ffd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                std::string filename(ffd.cFileName);
+                filename = folderName + "\\" + filename;
+                files.push_back(filename);
+            }
+        } while (FindNextFile(hFind, &ffd) != 0);
+    }
+    FindClose(hFind);
+#else
+    LOGE("Not implemented for Windows Phone");
+#endif
+}
+
+void print_help() {
+    printf( "Running: ./tf_benchmark --model=path/to/model.pb \n"
+            "                        --model-labels=path/to/model-labels.txt \n"
+            "                        --input-size=widthxheight \n"
+            "                        --img-folder=path/to/images/folder \n"
+            "                        --input-layer-name=INPUT_LAYER_NAME \n"
+            "                        --output-layer-name=OUTPUT_LAYER_NAME \n" );
+}
+
 int main(int argc, char* argv[]) {
-  // These are the command-line flags the program can understand.
-  // They define where the graph and input data is located, and what kind of
-  // input the model expects. If you train your own model, or use something
-  // other than GoogLeNet you'll need to update these.
-  string labels = "tensorflow/imagenet_comp_graph_label_strings.txt";
+  CLParameters params( argc, argv );
 
   int32 input_mean = 0;
   int32 input_std = 1;
-  string input_layer = "INPUT_X";
-  string output_layer = "RESULT_SOFTMAX";
-  bool self_test = false;
-  string root_dir = "";
+
+  std::string input_layer = params.getParam( "input-layer-name" );
+  std::string output_layer = params.getParam( "output-layer-name" );
+  std::string input_dim = params.getParam( "input-size" );
+  std::string image_root = params.getParam( "img-folder" );
+  std::string labels = params.getParam( "model-labels" );
+  std::string graph_path = params.getParam( "model" );
+
+  auto required_params = { input_layer, output_layer, input_dim, image_root, labels, graph_path };
+  if( std::any_of( required_params.begin(), required_params.end(), []( const auto& str ) { return str.empty(); } ) ) {
+      print_help();
+      return 1;
+  }
+
+  // extract dimensions
+  auto x_pos = input_dim.find( 'x' );
+  if ( x_pos == std::string::npos ) {
+      LOG( ERROR ) << "input-size must be in format widthxheight";
+      return 1;
+  }
+
+  auto w_str = input_dim.substr( 0, x_pos );
+  auto h_str = input_dim.substr( x_pos + 1 );
+
+  int32 input_width = atoi( w_str.c_str() );
+  int32 input_height = atoi( h_str.c_str() );
+
+//  bool self_test = false;
+//  string root_dir = "";
 //  string image = "tensorflow/trained_ema/images/1.jpg";
 
 //  int32 input_width = 133;
@@ -330,11 +414,13 @@ int main(int argc, char* argv[]) {
 //  string graph = "tensorflow/trained_ema/ema_50_133.pb";
 //  int img_count = 51;
 
-  int32 input_width = 1330;
-  int32 input_height = 500;
-  std::string image_root = "tensorflow/trained_bigdora_grayscale/images";
-  string graph = "tensorflow/trained_bigdora_grayscale/bigdora_model.pb";
-  int img_count = 19;
+//  int32 input_width = 1330;
+//  int32 input_height = 500;
+//  std::string image_root = "tensorflow/trained_bigdora_grayscale/images";
+//  string graph = "tensorflow/trained_bigdora_grayscale/bigdora_model.pb";
+//  int img_count = 19;
+
+
 
 //  std::vector<Flag> flag_list = {
 //      Flag("image", &image, "image to be processed"),
@@ -367,7 +453,7 @@ int main(int argc, char* argv[]) {
 //  }
 
   // First we load and initialize the model.
-  string graph_path = tensorflow::io::JoinPath(root_dir, graph);
+//  string graph_path = tensorflow::io::JoinPath(root_dir, graph);
 
   std::unique_ptr<tensorflow::Session> session;
   Status load_graph_status = LoadGraph(graph_path, &session);
@@ -381,22 +467,22 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
+  std::vector< std::string > images;
+  list_files_in_folder( image_root, images );
+
   ElapsedTimer global_timer;
 
   double times = 0.0;
   int num = 0;
+  bool first = true;
 
-  for ( auto i = 0; i <= img_count; ++i ) {
-      std::stringstream ss;
-      ss << image_root << '/' << i << ".jpg";
-      std::string image = ss.str();
-
-      LOG( INFO ) << "Running image " << image;
+  for ( const auto& image_path : images ) {
+      LOG( INFO ) << "Running image " << image_path;
 
       // Get the image from disk as a float array of numbers, resized and normalized
       // to the specifications the main graph expects.
       std::vector<Tensor> resized_tensors;
-      string image_path = tensorflow::io::JoinPath(root_dir, image);
+//      string image_path = tensorflow::io::JoinPath(root_dir, image);
       Status read_tensor_status =
           ReadTensorFromImageFile(image_path, input_height, input_width, input_mean,
                                   input_std, &resized_tensors);
@@ -420,7 +506,7 @@ int main(int argc, char* argv[]) {
 
       double tm = local_timer.toc();
 
-      if( i != 0 ) {
+      if( !first ) {
           times += tm;
           ++num;
       }
@@ -458,6 +544,7 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << "Running print failed: " << print_status;
         return -1;
       }
+      first = false;
   }
 
   LOG( INFO ) << "All images processed in " << global_timer.toc() << " ms";
