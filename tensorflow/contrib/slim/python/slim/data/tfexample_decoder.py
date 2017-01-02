@@ -27,7 +27,7 @@ import abc
 
 from tensorflow.contrib.slim.python.slim.data import data_decoder
 from tensorflow.python.framework import dtypes
-from tensorflow.python.framework import ops
+from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import image_ops
@@ -189,11 +189,11 @@ class Tensor(ItemHandler):
       shape_dims = []
       for k in self._shape_keys:
         shape_dim = keys_to_tensors[k]
-        if isinstance(shape_dim, ops.SparseTensor):
+        if isinstance(shape_dim, sparse_tensor.SparseTensor):
           shape_dim = sparse_ops.sparse_tensor_to_dense(shape_dim)
         shape_dims.append(shape_dim)
-      shape = array_ops.squeeze(array_ops.pack(shape_dims))
-    if isinstance(tensor, ops.SparseTensor):
+      shape = array_ops.reshape(array_ops.pack(shape_dims), [-1])
+    if isinstance(tensor, sparse_tensor.SparseTensor):
       if shape is not None:
         tensor = sparse_ops.sparse_reshape(tensor, shape)
       tensor = sparse_ops.sparse_tensor_to_dense(tensor, self._default_value)
@@ -241,7 +241,7 @@ class SparseTensor(ItemHandler):
     values = keys_to_tensors[self._values_key]
     if self._shape_key:
       shape = keys_to_tensors[self._shape_key]
-      if isinstance(shape, ops.SparseTensor):
+      if isinstance(shape, sparse_tensor.SparseTensor):
         shape = sparse_ops.sparse_tensor_to_dense(shape)
     elif self._shape:
       shape = self._shape
@@ -255,7 +255,7 @@ class SparseTensor(ItemHandler):
     new_indices = array_ops.concat(1, [indices_columns_to_preserve,
                                        array_ops.reshape(ids, [-1, 1])])
 
-    tensor = ops.SparseTensor(new_indices, values.values, shape)
+    tensor = sparse_tensor.SparseTensor(new_indices, values.values, shape)
     if self._densify:
       tensor = sparse_ops.sparse_tensor_to_dense(tensor, self._default_value)
     return tensor
@@ -273,9 +273,10 @@ class Image(ItemHandler):
         is stored.
       format_key: the name of the TF-Example feature in which the image format
         is stored.
-      shape: the output shape of the image. If provided, the image is reshaped
-        accordingly. If left as None, no reshaping is done. A shape should be
-        supplied only if all the stored images have the same shape.
+      shape: the output shape of the image as 1-D `Tensor`
+        [height, width, channels]. If provided, the image is reshaped
+        accordingly. If left as None, no reshaping is done. A shape should
+        be supplied only if all the stored images have the same shape.
       channels: the number of channels in the image.
     """
     if not image_key:
@@ -294,20 +295,18 @@ class Image(ItemHandler):
     image_buffer = keys_to_tensors[self._image_key]
     image_format = keys_to_tensors[self._format_key]
 
-    image = self._decode(image_buffer, image_format)
-    if self._shape is not None:
-      image = array_ops.reshape(image, self._shape)
-    return image
+    return self._decode(image_buffer, image_format)
 
   def _decode(self, image_buffer, image_format):
     """Decodes the image buffer.
 
     Args:
-      image_buffer: T tensor representing the encoded image tensor.
+      image_buffer: The tensor representing the encoded image tensor.
       image_format: The image format for the image in `image_buffer`.
 
     Returns:
-      A decoder image.
+      A tensor that represents decoded image of self._shape, or
+      (?, ?, self._channels) if self._shape is not specified.
     """
     def decode_png():
       return image_ops.decode_png(image_buffer, self._channels)
@@ -316,12 +315,24 @@ class Image(ItemHandler):
     def decode_jpg():
       return image_ops.decode_jpeg(image_buffer, self._channels)
 
-    image = control_flow_ops.case({
+    # For RGBA images JPEG is not a valid decoder option.
+    if self._channels > 3:
+      pred_fn_pairs = {
+        math_ops.logical_or(math_ops.equal(image_format, 'raw'),
+                            math_ops.equal(image_format, 'RAW')): decode_raw,
+      }
+      default_decoder = decode_png
+    else:
+      pred_fn_pairs = {
         math_ops.logical_or(math_ops.equal(image_format, 'png'),
                             math_ops.equal(image_format, 'PNG')): decode_png,
         math_ops.logical_or(math_ops.equal(image_format, 'raw'),
                             math_ops.equal(image_format, 'RAW')): decode_raw,
-    }, default=decode_jpg, exclusive=True)
+      }
+      default_decoder = decode_jpg
+
+    image = control_flow_ops.case(
+        pred_fn_pairs, default=default_decoder, exclusive=True)
 
     image.set_shape([None, None, self._channels])
     if self._shape is not None:

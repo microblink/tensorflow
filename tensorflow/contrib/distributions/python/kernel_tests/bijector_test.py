@@ -18,14 +18,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import abc
 import math
 
 import numpy as np
+import six
 import tensorflow as tf
 
 distributions = tf.contrib.distributions
 bijectors = tf.contrib.distributions.bijector
 rng = np.random.RandomState(42)
+
+
+def assert_finite(array):
+  if not np.isfinite(array).all():
+    raise AssertionError("array was not all finite. %s" % array[:15])
 
 
 def assert_strictly_increasing(array):
@@ -152,6 +159,65 @@ def assert_scalar_congruency(
                              atol=1e-5, rtol=1e-3)
 
 
+def assert_bijective_and_finite(bijector, x, y, atol=0, rtol=1e-5, sess=None):
+  """Assert that forward/inverse (along with jacobians) are inverses and finite.
+
+  It is recommended to use x and y values that are very very close to the edge
+  of the Bijector's domain.
+
+  Args:
+    bijector:  A Bijector instance.
+    x:  np.array of values in the domain of bijector.forward.
+    y:  np.array of values in the domain of bijector.inverse.
+    atol:  Absolute tolerance.
+    rtol:  Relative tolerance.
+    sess:  TensorFlow session.  Defaults to the default session.
+
+  Raises:
+    AssertionError:  If tests fail.
+  """
+  sess = sess or tf.get_default_session()
+
+  # These are the incoming points, but people often create a crazy range of
+  # values for which these end up being bad, especially in 16bit.
+  assert_finite(x)
+  assert_finite(y)
+  np.testing.assert_array_less(0, y)
+
+  f_x = bijector.forward(x)
+  g_y = bijector.inverse(y)
+
+  (
+      x_from_x, y_from_y, ildj_f_x, fldj_x, ildj_y, fldj_g_y, f_x_v, g_y_v,
+  ) = sess.run(
+      [bijector.inverse(f_x),
+       bijector.forward(g_y),
+       bijector.inverse_log_det_jacobian(f_x),
+       bijector.forward_log_det_jacobian(x),
+       bijector.inverse_log_det_jacobian(y),
+       bijector.forward_log_det_jacobian(g_y),
+       f_x,
+       g_y,
+      ])
+
+  # Softplus(x) should be > 0 and finite
+  np.testing.assert_array_less(0, f_x_v)
+  assert_finite(f_x_v)
+
+  assert_finite(x_from_x)
+  assert_finite(y_from_y)
+  assert_finite(ildj_f_x)
+  assert_finite(fldj_x)
+  assert_finite(ildj_y)
+  assert_finite(fldj_g_y)
+  assert_finite(g_y_v)
+
+  np.testing.assert_allclose(x_from_x, x, atol=atol, rtol=rtol)
+  np.testing.assert_allclose(y_from_y, y, atol=atol, rtol=rtol)
+  np.testing.assert_allclose(-ildj_f_x, fldj_x, atol=atol, rtol=rtol)
+  np.testing.assert_allclose(-ildj_y, fldj_g_y, atol=atol, rtol=rtol)
+
+
 class BaseBijectorTest(tf.test.TestCase):
   """Tests properties of the Bijector base-class."""
 
@@ -162,6 +228,158 @@ class BaseBijectorTest(tf.test.TestCase):
           ("Can't instantiate abstract class Bijector "
            "with abstract methods __init__")):
         bijectors.Bijector()
+
+
+class IntentionallyMissingError(Exception):
+  pass
+
+
+class BrokenBijectorWithInverseAndInverseLogDetJacobian(bijectors.Bijector):
+  """Bijector with broken directions.
+
+  This BrokenBijector implements _inverse_and_inverse_log_det_jacobian.
+  """
+
+  def __init__(self, forward_missing=False, inverse_missing=False):
+    super(BrokenBijectorWithInverseAndInverseLogDetJacobian, self).__init__(
+        batch_ndims=0,
+        event_ndims=0,
+        validate_args=False,
+        name="BrokenBijectorDual")
+    self._forward_missing = forward_missing
+    self._inverse_missing = inverse_missing
+
+  def _forward(self, x):
+    if self._forward_missing:
+      raise IntentionallyMissingError
+    return 2. * x
+
+  def _inverse_and_inverse_log_det_jacobian(self, y):
+    if self._inverse_missing:
+      raise IntentionallyMissingError
+    return y / 2., -tf.log(2.)
+
+  def _forward_log_det_jacobian(self, x):  # pylint:disable=unused-argument
+    if self._forward_missing:
+      raise IntentionallyMissingError
+    return tf.log(2.)
+
+
+class BrokenBijectorSeparateInverseAndInverseLogDetJacobian(bijectors.Bijector):
+  """Forward and inverse are not inverses of each other.
+
+  This BrokenBijector implements _inverse and _inverse_log_det_jacobian as
+  separate functions.
+  """
+
+  def __init__(self, forward_missing=False, inverse_missing=False):
+    super(BrokenBijectorSeparateInverseAndInverseLogDetJacobian, self).__init__(
+        batch_ndims=0,
+        event_ndims=0,
+        validate_args=False,
+        name="broken")
+    self._forward_missing = forward_missing
+    self._inverse_missing = inverse_missing
+
+  def _forward(self, x):
+    if self._forward_missing:
+      raise IntentionallyMissingError
+    return 2 * x
+
+  def _inverse(self, y):
+    if self._inverse_missing:
+      raise IntentionallyMissingError
+    return y / 2.
+
+  def _inverse_log_det_jacobian(self, y):  # pylint:disable=unused-argument
+    if self._inverse_missing:
+      raise IntentionallyMissingError
+    return -tf.log(2.)
+
+  def _forward_log_det_jacobian(self, x):  # pylint:disable=unused-argument
+    if self._forward_missing:
+      raise IntentionallyMissingError
+    return tf.log(2.)
+
+
+@six.add_metaclass(abc.ABCMeta)
+class BijectorCachingTest(object):
+
+  @abc.abstractproperty
+  def broken_bijector_cls(self):
+    # return a BrokenBijector type Bijector, since this will test the caching.
+    raise IntentionallyMissingError("Not implemented")
+
+  def testCachingOfForwardResultsWhenCalledOneByOne(self):
+    broken_bijector = self.broken_bijector_cls(inverse_missing=True)
+    with self.test_session():
+      x = tf.constant(1.1)
+
+      # Call forward and forward_log_det_jacobian one-by-one (not together).
+      y = broken_bijector.forward(x)
+      _ = broken_bijector.forward_log_det_jacobian(x)
+
+      # Now, everything should be cached if the argument is y.
+      try:
+        broken_bijector.inverse(y)
+        broken_bijector.inverse_log_det_jacobian(y)
+        broken_bijector.inverse_and_inverse_log_det_jacobian(y)
+      except IntentionallyMissingError:
+        raise AssertionError("Tests failed!  Cached values not used.")
+
+  def testCachingOfInverseResultsWhenCalledOneByOne(self):
+    broken_bijector = self.broken_bijector_cls(forward_missing=True)
+    with self.test_session():
+      y = tf.constant(1.1)
+
+      # Call inverse and inverse_log_det_jacobian one-by-one (not together).
+      x = broken_bijector.inverse(y)
+      _ = broken_bijector.inverse_log_det_jacobian(y)
+
+      # Now, everything should be cached if the argument is x.
+      try:
+        broken_bijector.forward(x)
+        broken_bijector.forward_log_det_jacobian(x)
+      except IntentionallyMissingError:
+        raise AssertionError("Tests failed!  Cached values not used.")
+
+  def testCachingOfInverseResultsWhenCalledTogether(self):
+    broken_bijector = self.broken_bijector_cls(forward_missing=True)
+    with self.test_session():
+      y = tf.constant(1.1)
+
+      # Call inverse and inverse_log_det_jacobian one-by-one (not together).
+      x, _ = broken_bijector.inverse_and_inverse_log_det_jacobian(y)
+
+      # Now, everything should be cached if the argument is x.
+      try:
+        broken_bijector.forward(x)
+        broken_bijector.forward_log_det_jacobian(x)
+      except IntentionallyMissingError:
+        raise AssertionError("Tests failed!  Cached values not used.")
+
+
+class SeparateCallsBijectorCachingTest(BijectorCachingTest, tf.test.TestCase):
+  """Test caching with BrokenBijectorSeparateInverseAndInverseLogDetJacobian.
+
+  These bijectors implement forward, inverse,... all as separate functions.
+  """
+
+  @property
+  def broken_bijector_cls(self):
+    return BrokenBijectorSeparateInverseAndInverseLogDetJacobian
+
+
+class JointCallsBijectorCachingTest(BijectorCachingTest, tf.test.TestCase):
+  """Test caching with BrokenBijectorWithInverseAndInverseLogDetJacobian.
+
+  These bijectors implement _inverse_and_inverse_log_det_jacobian, which is two
+  functionalities together.
+  """
+
+  @property
+  def broken_bijector_cls(self):
+    return BrokenBijectorWithInverseAndInverseLogDetJacobian
 
 
 class IdentityBijectorTest(tf.test.TestCase):
@@ -212,6 +430,13 @@ class ExpBijectorTest(tf.test.TestCase):
       bijector = bijectors.Exp()
       assert_scalar_congruency(bijector, lower_x=-2., upper_x=1.5, rtol=0.05)
 
+  def testBijectiveAndFinite(self):
+    with self.test_session():
+      bijector = bijectors.Exp(event_ndims=0)
+      x = np.linspace(-10, 10, num=10).astype(np.float32)
+      y = np.logspace(-10, 10, num=10).astype(np.float32)
+      assert_bijective_and_finite(bijector, x, y)
+
 
 class InlineBijectorTest(tf.test.TestCase):
   """Tests correctness of the inline constructed bijector."""
@@ -242,6 +467,23 @@ class InlineBijectorTest(tf.test.TestCase):
       rev, jac = inline.inverse_and_inverse_log_det_jacobian(y)
       self.assertAllClose(x, rev.eval())
       self.assertAllClose(-np.sum(np.log(y), axis=-1), jac.eval())
+
+  def testShapeGetters(self):
+    with self.test_session():
+      bijector = bijectors.Inline(
+          forward_event_shape_fn=lambda x: tf.concat(0, (x, [1])),
+          get_forward_event_shape_fn=lambda x: x.as_list() + [1],
+          inverse_event_shape_fn=lambda x: x[:-1],
+          get_inverse_event_shape_fn=lambda x: x[:-1],
+          name="shape_only")
+      x = tf.TensorShape([1, 2, 3])
+      y = tf.TensorShape([1, 2, 3, 1])
+      self.assertAllEqual(y, bijector.get_forward_event_shape(x))
+      self.assertAllEqual(y.as_list(),
+                          bijector.forward_event_shape(x.as_list()).eval())
+      self.assertAllEqual(x, bijector.get_inverse_event_shape(y))
+      self.assertAllEqual(x.as_list(),
+                          bijector.inverse_event_shape(y.as_list()).eval())
 
 
 class ScaleAndShiftBijectorTest(tf.test.TestCase):
@@ -368,23 +610,29 @@ class ScaleAndShiftBijectorTest(tf.test.TestCase):
 
       for run in (static_run, dynamic_run):
         mu = [1., -1]
-        sigma = np.eye(2, dtype=np.float32)
+        # Note:  sigma is -1 * identity matrix.
+        sigma = -np.eye(2, dtype=np.float32)
         bijector = bijectors.ScaleAndShift(
             shift=mu, scale=sigma, event_ndims=1)
         self.assertEqual(0, bijector.shaper.batch_ndims.eval())  # "no batches"
         self.assertEqual(1, bijector.shaper.event_ndims.eval())  # "is vector"
         x = [1., 1]
-        self.assertAllClose([2., 0], run(bijector.forward, x))
-        self.assertAllClose([0., 2], run(bijector.inverse, x))
+        # matmul(sigma, x) + shift
+        # = [-1, -1] + [1, -1]
+        self.assertAllClose([0., -2], run(bijector.forward, x))
+        self.assertAllClose([0., -2], run(bijector.inverse, x))
         self.assertAllClose([0.], run(bijector.inverse_log_det_jacobian, x))
 
+        # x is a 2-batch of 2-vectors.
+        # The first vector is [1, 1], the second is [-1, -1].
+        # Each undergoes matmul(sigma, x) + shift.
         x = [[1., 1],
              [-1., -1]]
-        self.assertAllClose([[2., 0],
-                             [0, -2]],
+        self.assertAllClose([[0., -2],
+                             [2., 0]],
                             run(bijector.forward, x))
-        self.assertAllClose([[0., 2],
-                             [-2., 0]],
+        self.assertAllClose([[0., -2],
+                             [2., 0]],
                             run(bijector.inverse, x))
         self.assertAllClose([0.], run(bijector.inverse_log_det_jacobian, x))
 
@@ -476,9 +724,51 @@ class ScaleAndShiftBijectorTest(tf.test.TestCase):
       self.assertAllClose(
           [0.], sess.run(bijector.inverse_log_det_jacobian(x), feed_dict))
 
+  def testNoBatchMultivariateRaisesWhenSingular(self):
+    with self.test_session():
+      mu = [1., -1]
+      sigma = [[0., 1.], [1., 1.]]  # Has zero on the diag!
+      bijector = bijectors.ScaleAndShift(
+          shift=mu, scale=sigma, event_ndims=1, validate_args=True)
+      with self.assertRaisesOpError("Singular"):
+        bijector.forward([1., 1.]).eval()
+
+  def testEventNdimsLargerThanOneRaises(self):
+    with self.test_session():
+      mu = [1., -1]
+      sigma = [[1., 1.], [1., 1.]]
+      bijector = bijectors.ScaleAndShift(
+          shift=mu, scale=sigma, event_ndims=2, validate_args=True)
+      with self.assertRaisesOpError("event_ndims"):
+        bijector.forward([1., 1.]).eval()
+
+  def testNonSquareMatrixScaleRaises(self):
+    # event_ndims = 1, so we expected a matrix, but will only feed a vector.
+    with self.test_session():
+      mu = [1., -1]
+      sigma = [[1., 1., 1.], [1., 1., 1.]]
+      bijector = bijectors.ScaleAndShift(
+          shift=mu, scale=sigma, event_ndims=1, validate_args=True)
+      with self.assertRaisesOpError("square"):
+        bijector.forward([1., 1.]).eval()
+
+  def testScaleZeroScalarRaises(self):
+    with self.test_session():
+      mu = -1.
+      sigma = 0.  # Scalar, leads to non-invertible bijector
+      bijector = bijectors.ScaleAndShift(
+          shift=mu, scale=sigma, validate_args=True)
+      with self.assertRaisesOpError("Singular"):
+        bijector.forward(1.).eval()
+
   def testScalarCongruency(self):
     with self.test_session():
       bijector = bijectors.ScaleAndShift(shift=3.6, scale=0.42, event_ndims=0)
+      assert_scalar_congruency(bijector, lower_x=-2., upper_x=2.)
+
+  def testScalarCongruencyWithNegativeScale(self):
+    with self.test_session():
+      bijector = bijectors.ScaleAndShift(shift=3.6, scale=-0.42, event_ndims=0)
       assert_scalar_congruency(bijector, lower_x=-2., upper_x=2.)
 
 
@@ -546,6 +836,24 @@ class SoftplusBijectorTest(tf.test.TestCase):
       bijector = bijectors.Softplus(event_ndims=0)
       assert_scalar_congruency(bijector, lower_x=-2., upper_x=2.)
 
+  def testBijectiveAndFinite32bit(self):
+    with self.test_session():
+      bijector = bijectors.Softplus(event_ndims=0)
+      x = np.linspace(-20., 20., 100).astype(np.float32)
+      y = np.logspace(-10, 10, 100).astype(np.float32)
+      assert_bijective_and_finite(bijector, x, y, rtol=1e-2, atol=1e-2)
+
+  def testBijectiveAndFinite16bit(self):
+    with self.test_session():
+      bijector = bijectors.Softplus(event_ndims=0)
+      # softplus(-20) is zero, so we can't use such a large range as in 32bit.
+      x = np.linspace(-10., 20., 100).astype(np.float16)
+      # Note that float16 is only in the open set (0, inf) for a smaller
+      # logspace range.  The actual range was (-7, 4), so use something smaller
+      # for the test.
+      y = np.logspace(-6, 3, 100).astype(np.float16)
+      assert_bijective_and_finite(bijector, x, y, rtol=1e-1, atol=1e-3)
+
 
 class SoftmaxCenteredBijectorTest(tf.test.TestCase):
   """Tests correctness of the Y = g(X) = exp(X) / sum(exp(X)) transformation."""
@@ -587,6 +895,35 @@ class SoftmaxCenteredBijectorTest(tf.test.TestCase):
       self.assertAllClose(-softmax.inverse_log_det_jacobian(y).eval(),
                           softmax.forward_log_det_jacobian(x).eval(),
                           atol=0., rtol=1e-7)
+
+  def testShapeGetters(self):
+    with self.test_session():
+      for x, y, b in (
+          (tf.TensorShape([]),
+           tf.TensorShape([2]),
+           bijectors.SoftmaxCentered(event_ndims=0, validate_args=True)),
+          (tf.TensorShape([4]),
+           tf.TensorShape([5]),
+           bijectors.SoftmaxCentered(event_ndims=1, validate_args=True))):
+        self.assertAllEqual(y, b.get_forward_event_shape(x))
+        self.assertAllEqual(y.as_list(),
+                            b.forward_event_shape(x.as_list()).eval())
+        self.assertAllEqual(x, b.get_inverse_event_shape(y))
+        self.assertAllEqual(x.as_list(),
+                            b.inverse_event_shape(y.as_list()).eval())
+
+  def testBijectiveAndFinite(self):
+    with self.test_session():
+      softmax = bijectors.SoftmaxCentered(event_ndims=1)
+      x = np.linspace(-50, 50, num=10).reshape(5, 2).astype(np.float32)
+      # Make y values on the simplex with a wide range.
+      y_0 = np.ones(5).astype(np.float32)
+      y_1 = (1e-5 * rng.rand(5)).astype(np.float32)
+      y_2 = (1e1 * rng.rand(5)).astype(np.float32)
+      y = np.array([y_0, y_1, y_2])
+      y /= y.sum(axis=0)
+      y = y.T  # y.shape = [5, 3]
+      assert_bijective_and_finite(softmax, x, y)
 
 
 class SigmoidCenteredBijectorTest(tf.test.TestCase):
@@ -709,6 +1046,20 @@ class ChainBijectorTest(tf.test.TestCase):
                                   bijectors.Softplus()))
       assert_scalar_congruency(bijector, lower_x=1e-3, upper_x=1.5, rtol=0.05)
 
+  def testShapeGetters(self):
+    with self.test_session():
+      bijector = bijectors.Chain((
+          bijectors.SoftmaxCentered(event_ndims=1, validate_args=True),
+          bijectors.SoftmaxCentered(event_ndims=0, validate_args=True)))
+      x = tf.TensorShape([])
+      y = tf.TensorShape([2+1])
+      self.assertAllEqual(y, bijector.get_forward_event_shape(x))
+      self.assertAllEqual(y.as_list(),
+                          bijector.forward_event_shape(x.as_list()).eval())
+      self.assertAllEqual(x, bijector.get_inverse_event_shape(y))
+      self.assertAllEqual(x.as_list(),
+                          bijector.inverse_event_shape(y.as_list()).eval())
+
 
 class InvertBijectorTest(tf.test.TestCase):
   """Tests the correctness of the Y = Invert(bij) transformation."""
@@ -746,6 +1097,19 @@ class InvertBijectorTest(tf.test.TestCase):
     with self.test_session():
       bijector = bijectors.Invert(bijectors.Exp())
       assert_scalar_congruency(bijector, lower_x=1e-3, upper_x=1.5, rtol=0.05)
+
+  def testShapeGetters(self):
+    with self.test_session():
+      bijector = bijectors.Invert(bijectors.SigmoidCentered(
+          validate_args=True))
+      x = tf.TensorShape([2])
+      y = tf.TensorShape([])
+      self.assertAllEqual(y, bijector.get_forward_event_shape(x))
+      self.assertAllEqual(y.as_list(),
+                          bijector.forward_event_shape(x.as_list()).eval())
+      self.assertAllEqual(x, bijector.get_inverse_event_shape(y))
+      self.assertAllEqual(x.as_list(),
+                          bijector.inverse_event_shape(y.as_list()).eval())
 
 
 if __name__ == "__main__":

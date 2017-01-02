@@ -29,6 +29,7 @@ from tensorflow.contrib.tensor_forest.python.ops import training_ops
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
+from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import init_ops
@@ -36,6 +37,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import random_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variable_scope
+from tensorflow.python.ops import variables as tf_variables
 from tensorflow.python.platform import tf_logging as logging
 
 
@@ -117,19 +119,8 @@ class ForestHParams(object):
         self.num_splits_to_consider or
         max(10, int(math.ceil(math.sqrt(self.num_features)))))
 
-    # max_fertile_nodes doesn't effect performance, only training speed.
-    # We therefore set it primarily based upon space considerations.
-    # Each fertile node takes up num_splits_to_consider times as much
-    # as space as a non-fertile node.  We want the fertile nodes to in
-    # total only take up as much space as the non-fertile nodes, so
-    num_fertile = int(math.ceil(self.max_nodes / self.num_splits_to_consider))
-    # But always use at least 1000 accumulate slots.
-    num_fertile = max(num_fertile, 1000)
-    self.max_fertile_nodes = self.max_fertile_nodes or num_fertile
-    # But it also never needs to be larger than the number of leaves,
-    # which is max_nodes / 2.
-    self.max_fertile_nodes = min(self.max_fertile_nodes,
-                                 int(math.ceil(self.max_nodes / 2.0)))
+    self.max_fertile_nodes = (self.max_fertile_nodes or
+                              int(math.ceil(self.max_nodes / 2.0)))
 
     # We have num_splits_to_consider slots to fill, and we want to spend
     # approximately split_after_samples samples initializing them.
@@ -145,6 +136,17 @@ class ForestHParams(object):
     self.base_random_seed = getattr(self, 'base_random_seed', 0)
 
     return self
+
+
+def get_epoch_variable():
+  """Returns the epoch variable, or [0] if not defined."""
+  # Grab epoch variable defined in
+  # //third_party/tensorflow/python/training/input.py::limit_epochs
+  for v in tf_variables.local_variables():
+    if 'limit_epochs/epoch' in v.op.name:
+      return array_ops.reshape(v, [1])
+  # TODO(thomaswc): Access epoch from the data feeder.
+  return [0]
 
 
 # A simple container to hold the training variables for a single tree.
@@ -338,8 +340,11 @@ class RandomForestGraphs(object):
     return array_ops.concat(
         1, [split_data[ind] for ind in self.params.bagged_features[tree_num]])
 
-  def training_graph(self, input_data, input_labels, data_spec=None,
-                     epoch=None, **tree_kwargs):
+  def training_graph(self,
+                     input_data,
+                     input_labels,
+                     data_spec=None,
+                     **tree_kwargs):
     """Constructs a TF graph for training a random forest.
 
     Args:
@@ -348,7 +353,6 @@ class RandomForestGraphs(object):
         input_data.
       data_spec: A list of tf.dtype values specifying the original types of
         each column.
-      epoch: A tensor or placeholder for the epoch the training data comes from.
       **tree_kwargs: Keyword arguments passed to each tree's training_graph.
 
     Returns:
@@ -386,7 +390,6 @@ class RandomForestGraphs(object):
           tree_graphs.append(
               self.trees[i].training_graph(
                   tree_data, tree_labels, seed, data_spec=data_spec,
-                  epoch=([0] if epoch is None else epoch),
                   **tree_kwargs))
 
     return control_flow_ops.group(*tree_graphs, name='train')
@@ -601,7 +604,6 @@ class RandomTreeGraphs(object):
                      input_labels,
                      random_seed,
                      data_spec,
-                     epoch=None,
                      input_weights=None):
 
     """Constructs a TF graph for training a random tree.
@@ -614,14 +616,13 @@ class RandomTreeGraphs(object):
         means use the current time as the seed.
       data_spec: A list of tf.dtype values specifying the original types of
         each column.
-      epoch: A tensor or placeholder for the epoch the training data comes from.
       input_weights: A float tensor or placeholder holding per-input weights,
         or None if all inputs are to be weighted equally.
 
     Returns:
       The last op in the random tree training graph.
     """
-    epoch = [0] if epoch is None else epoch
+    epoch = math_ops.to_int32(get_epoch_variable())
 
     if input_weights is None:
       input_weights = []
@@ -629,7 +630,7 @@ class RandomTreeGraphs(object):
     sparse_indices = []
     sparse_values = []
     sparse_shape = []
-    if isinstance(input_data, ops.SparseTensor):
+    if isinstance(input_data, sparse_tensor.SparseTensor):
       sparse_indices = input_data.indices
       sparse_values = input_data.values
       sparse_shape = input_data.shape
@@ -701,8 +702,12 @@ class RandomTreeGraphs(object):
 
     # Calculate finished nodes.
     with ops.control_dependencies(splits_update_ops):
+      # Passing input_leaves to finished nodes here means that nodes that
+      # have become stale won't be deallocated until an input reaches them,
+      # because we're trying to avoid considering every fertile node for
+      # performance reasons.
       finished, stale = self.training_ops.finished_nodes(
-          self.variables.accumulator_to_node_map,
+          input_leaves,
           self.variables.node_to_accumulator_map,
           self.variables.candidate_split_sums,
           self.variables.candidate_split_squares,
@@ -780,6 +785,7 @@ class RandomTreeGraphs(object):
            self.variables.accumulator_sums,
            self.variables.node_to_accumulator_map,
            stale,
+           self.variables.node_sums,
            regression=self.params.regression))
 
     # Ensure end_of_tree doesn't get updated until UpdateFertileSlots has
@@ -881,7 +887,7 @@ class RandomTreeGraphs(object):
     sparse_indices = []
     sparse_values = []
     sparse_shape = []
-    if isinstance(input_data, ops.SparseTensor):
+    if isinstance(input_data, sparse_tensor.SparseTensor):
       sparse_indices = input_data.indices
       sparse_values = input_data.values
       sparse_shape = input_data.shape

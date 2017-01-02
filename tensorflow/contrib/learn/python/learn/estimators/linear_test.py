@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import json
 import tempfile
 
 import numpy as np
@@ -112,8 +113,8 @@ class LinearClassifierTest(tf.test.TestCase):
     scores = classifier.evaluate(input_fn=_iris_input_fn, steps=100)
     self.assertGreater(scores['accuracy'], 0.9)
 
-  def testMultiClass_MatrixData_Target1D(self):
-    """Same as the last test, but target shape is [150] instead of [150, 1]."""
+  def testMultiClass_MatrixData_Labels1D(self):
+    """Same as the last test, but labels shape is [150] instead of [150, 1]."""
     def _input_fn():
       iris = tf.contrib.learn.datasets.load_iris()
       return {
@@ -163,8 +164,8 @@ class LinearClassifierTest(tf.test.TestCase):
     scores = classifier.evaluate(input_fn=_input_fn, steps=1)
     self.assertGreater(scores['accuracy'], 0.9)
 
-  def testLogisticRegression_MatrixData_Target1D(self):
-    """Same as the last test, but target shape is [100] instead of [100, 1]."""
+  def testLogisticRegression_MatrixData_Labels1D(self):
+    """Same as the last test, but labels shape is [100] instead of [100, 1]."""
     def _input_fn():
       iris = _prepare_iris_data_for_logistic_regression()
       return {
@@ -257,16 +258,16 @@ class LinearClassifierTest(tf.test.TestCase):
 
     def _input_fn(num_epochs=None):
       # Create 4 rows, one of them (y = x), three of them (y=Not(x))
-      target = tf.constant([[1], [0], [0], [0]], dtype=tf.float32)
+      labels = tf.constant([[1], [0], [0], [0]], dtype=tf.float32)
       features = {'x': tf.train.limit_epochs(
           tf.ones(shape=[4, 1], dtype=tf.float32), num_epochs=num_epochs)}
-      return features, target
+      return features, labels
 
-    def _my_metric_op(predictions, targets):
+    def _my_metric_op(predictions, labels):
       # For the case of binary classification, the 2nd column of "predictions"
       # denotes the model predictions.
       predictions = tf.slice(predictions, [0, 1], [-1, 1])
-      return tf.reduce_sum(tf.mul(predictions, targets))
+      return tf.reduce_sum(tf.mul(predictions, labels))
 
     classifier = tf.contrib.learn.LinearClassifier(
         feature_columns=[tf.contrib.layers.real_valued_column('x')])
@@ -293,7 +294,18 @@ class LinearClassifierTest(tf.test.TestCase):
     self.assertEqual(_sklearn.accuracy_score([1, 0, 0, 0], predictions),
                      scores['my_accuracy'])
 
-    # Test the case where the 2nd element of the key is neither "classes" nor
+    # Tests the case where the prediction_key is neither "classes" nor
+    # "probabilities".
+    with self.assertRaisesRegexp(KeyError, 'bad_type'):
+      classifier.evaluate(
+          input_fn=_input_fn,
+          steps=100,
+          metrics={
+              'bad_name': MetricSpec(
+                  metric_fn=tf.contrib.metrics.streaming_auc,
+                  prediction_key='bad_type')})
+
+    # Tests the case where the 2nd element of the key is neither "classes" nor
     # "probabilities".
     with self.assertRaises(KeyError):
       classifier.evaluate(
@@ -301,7 +313,7 @@ class LinearClassifierTest(tf.test.TestCase):
           steps=100,
           metrics={('bad_name', 'bad_type'): tf.contrib.metrics.streaming_auc})
 
-    # Test the case where the tuple of the key doesn't have 2 elements.
+    # Tests the case where the tuple of the key doesn't have 2 elements.
     with self.assertRaises(ValueError):
       classifier.evaluate(
           input_fn=_input_fn,
@@ -330,9 +342,9 @@ class LinearClassifierTest(tf.test.TestCase):
     predict_input_fn = functools.partial(input_fn, num_epochs=1)
     predictions_proba = list(
         classifier.predict_proba(input_fn=predict_input_fn))
-    # Prediction probabilities mirror the target column, which proves that the
+    # Prediction probabilities mirror the labels column, which proves that the
     # classifier learns from float input.
-    self.assertAllClose(predictions_proba, [[.3, .7], [1., 0.]], atol=.1)
+    self.assertAllClose([[.3, .7], [1., 0.]], predictions_proba, atol=.1)
 
   def testTrainWithPartitionedVariables(self):
     """Tests training with partitioned variables."""
@@ -343,8 +355,8 @@ class LinearClassifierTest(tf.test.TestCase):
                                       indices=[[0, 0], [0, 1], [2, 0]],
                                       shape=[3, 2])
       }
-      target = tf.constant([[1], [0], [0]])
-      return features, target
+      labels = tf.constant([[1], [0], [0]])
+      return features, labels
 
     sparse_features = [
         # The given hash_bucket_size results in variables larger than the
@@ -353,13 +365,22 @@ class LinearClassifierTest(tf.test.TestCase):
                                                          hash_bucket_size=2e7)
     ]
 
+    tf_config = {
+        'cluster': {
+            tf.contrib.learn.TaskType.PS: ['fake_ps_0', 'fake_ps_1']
+        }
+    }
+    with tf.test.mock.patch.dict('os.environ',
+                                 {'TF_CONFIG': json.dumps(tf_config)}):
+      config = tf.contrib.learn.RunConfig()
+      # Because we did not start a distributed cluster, we need to pass an
+      # empty ClusterSpec, otherwise the device_setter will look for
+      # distributed jobs, such as "/job:ps" which are not present.
+      config._cluster_spec = tf.train.ClusterSpec({})
+
     classifier = tf.contrib.learn.LinearClassifier(
         feature_columns=sparse_features,
-        # Because we did not start a distributed cluster, we need to pass an
-        # empty ClusterSpec, otherwise the device_setter will look for
-        # distributed jobs, such as "/job:ps" which are not present.
-        config=tf.contrib.learn.RunConfig(
-            num_ps_replicas=2, cluster_spec=tf.train.ClusterSpec({})))
+        config=config)
     classifier.fit(input_fn=_input_fn, steps=200)
     loss = classifier.evaluate(input_fn=_input_fn, steps=1)['loss']
     self.assertLess(loss, 0.07)
@@ -406,21 +427,21 @@ class LinearClassifierTest(tf.test.TestCase):
       # Create 4 rows, one of them (y = x), three of them (y=Not(x))
       # First row has more weight than others. Model should fit (y=x) better
       # than (y=Not(x)) due to the relative higher weight of the first row.
-      target = tf.constant([[1], [0], [0], [0]])
+      labels = tf.constant([[1], [0], [0], [0]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
           'w': tf.constant([[100.], [3.], [2.], [2.]])
       }
-      return features, target
+      return features, labels
 
     def _input_fn_eval():
       # Create 4 rows (y = x)
-      target = tf.constant([[1], [1], [1], [1]])
+      labels = tf.constant([[1], [1], [1], [1]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
           'w': tf.constant([[1.], [1.], [1.], [1.]])
       }
-      return features, target
+      return features, labels
 
     classifier = tf.contrib.learn.LinearClassifier(
         weight_column_name='w',
@@ -430,7 +451,7 @@ class LinearClassifierTest(tf.test.TestCase):
     classifier.fit(input_fn=_input_fn_train, steps=100)
     scores = classifier.evaluate(input_fn=_input_fn_eval, steps=1)
     # All examples in eval data set are y=x.
-    self.assertGreater(scores['labels/actual_target_mean'], 0.9)
+    self.assertGreater(scores['labels/actual_label_mean'], 0.9)
     # If there were no weight column, model would learn y=Not(x). Because of
     # weights, it learns y=x.
     self.assertGreater(scores['labels/prediction_mean'], 0.9)
@@ -440,9 +461,9 @@ class LinearClassifierTest(tf.test.TestCase):
     self.assertGreater(scores['accuracy'], 0.9)
 
     scores_train_set = classifier.evaluate(input_fn=_input_fn_train, steps=1)
-    # Considering weights, the mean target should be close to 1.0.
+    # Considering weights, the mean label should be close to 1.0.
     # If weights were ignored, it would be 0.25.
-    self.assertGreater(scores_train_set['labels/actual_target_mean'], 0.9)
+    self.assertGreater(scores_train_set['labels/actual_label_mean'], 0.9)
     # The classifier has learned y=x.  If weight column were ignored in
     # evaluation, then accuracy for the train set would be 0.25.
     # Because weight is not ignored, accuracy is greater than 0.6.
@@ -456,8 +477,8 @@ class LinearClassifierTest(tf.test.TestCase):
           'age': tf.constant([[20], [20], [20]]),
           'weights': tf.constant([[100], [1], [1]]),
       }
-      target = tf.constant([[1], [0], [0]])
-      return features, target
+      labels = tf.constant([[1], [0], [0]])
+      return features, labels
 
     age = tf.contrib.layers.real_valued_column('age')
 
@@ -864,11 +885,11 @@ class LinearRegressorTest(tf.test.TestCase):
     def _input_fn_train():
       # Create 4 rows, one of them (y = x), three of them (y=Not(x))
       # The algorithm should learn (y = 0.25).
-      target = tf.constant([[1.], [0.], [0.], [0.]])
+      labels = tf.constant([[1.], [0.], [0.], [0.]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
       }
-      return features, target
+      return features, labels
 
     regressor = tf.contrib.learn.LinearRegressor(
         feature_columns=[tf.contrib.layers.real_valued_column('x')],
@@ -877,7 +898,7 @@ class LinearRegressorTest(tf.test.TestCase):
     regressor.fit(input_fn=_input_fn_train, steps=100)
     scores = regressor.evaluate(input_fn=_input_fn_train, steps=1)
     # Average square loss = (0.75^2 + 3*0.25^2) / 4 = 0.1875
-    self.assertAlmostEqual(scores['loss'], 0.1875, delta=0.1)
+    self.assertAlmostEqual(0.1875, scores['loss'], delta=0.1)
 
   def testLossWithWeights(self):
     """Tests loss calculation with weights."""
@@ -885,21 +906,21 @@ class LinearRegressorTest(tf.test.TestCase):
     def _input_fn_train():
       # 4 rows with equal weight, one of them (y = x), three of them (y=Not(x))
       # The algorithm should learn (y = 0.25).
-      target = tf.constant([[1.], [0.], [0.], [0.]])
+      labels = tf.constant([[1.], [0.], [0.], [0.]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
           'w': tf.constant([[1.], [1.], [1.], [1.]])
       }
-      return features, target
+      return features, labels
 
     def _input_fn_eval():
       # 4 rows, with different weights.
-      target = tf.constant([[1.], [0.], [0.], [0.]])
+      labels = tf.constant([[1.], [0.], [0.], [0.]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
           'w': tf.constant([[7.], [1.], [1.], [1.]])
       }
-      return features, target
+      return features, labels
 
     regressor = tf.contrib.learn.LinearRegressor(
         weight_column_name='w',
@@ -909,7 +930,7 @@ class LinearRegressorTest(tf.test.TestCase):
     regressor.fit(input_fn=_input_fn_train, steps=100)
     scores = regressor.evaluate(input_fn=_input_fn_eval, steps=1)
     # Weighted average square loss = (7*0.75^2 + 3*0.25^2) / 10 = 0.4125
-    self.assertAlmostEqual(scores['loss'], 0.4125, delta=0.1)
+    self.assertAlmostEqual(0.4125, scores['loss'], delta=0.1)
 
   def testTrainWithWeights(self):
     """Tests training with given weight column."""
@@ -918,21 +939,21 @@ class LinearRegressorTest(tf.test.TestCase):
       # Create 4 rows, one of them (y = x), three of them (y=Not(x))
       # First row has more weight than others. Model should fit (y=x) better
       # than (y=Not(x)) due to the relative higher weight of the first row.
-      target = tf.constant([[1.], [0.], [0.], [0.]])
+      labels = tf.constant([[1.], [0.], [0.], [0.]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
           'w': tf.constant([[100.], [3.], [2.], [2.]])
       }
-      return features, target
+      return features, labels
 
     def _input_fn_eval():
       # Create 4 rows (y = x)
-      target = tf.constant([[1.], [1.], [1.], [1.]])
+      labels = tf.constant([[1.], [1.], [1.], [1.]])
       features = {
           'x': tf.ones(shape=[4, 1], dtype=tf.float32),
           'w': tf.constant([[1.], [1.], [1.], [1.]])
       }
-      return features, target
+      return features, labels
 
     regressor = tf.contrib.learn.LinearRegressor(
         weight_column_name='w',
@@ -947,7 +968,7 @@ class LinearRegressorTest(tf.test.TestCase):
 
   def testPredict_AsIterableFalse(self):
     """Tests predict method with as_iterable=False."""
-    target = [1.0, 0., 0.2]
+    labels = [1.0, 0., 0.2]
     def _input_fn(num_epochs=None):
       features = {
           'age': tf.train.limit_epochs(tf.constant([[0.8], [0.15], [0.]]),
@@ -956,7 +977,7 @@ class LinearRegressorTest(tf.test.TestCase):
                                       indices=[[0, 0], [0, 1], [2, 0]],
                                       shape=[3, 2])
       }
-      return features, tf.constant(target, dtype=tf.float32)
+      return features, tf.constant(labels, dtype=tf.float32)
 
     feature_columns = [
         tf.contrib.layers.sparse_column_with_hash_bucket('language',
@@ -973,11 +994,11 @@ class LinearRegressorTest(tf.test.TestCase):
     scores = regressor.evaluate(input_fn=_input_fn, steps=1)
     self.assertLess(scores['loss'], 0.1)
     predictions = regressor.predict(input_fn=_input_fn, as_iterable=False)
-    self.assertAllClose(predictions, target, atol=0.1)
+    self.assertAllClose(labels, predictions, atol=0.1)
 
   def testPredict_AsIterable(self):
     """Tests predict method with as_iterable=True."""
-    target = [1.0, 0., 0.2]
+    labels = [1.0, 0., 0.2]
     def _input_fn(num_epochs=None):
       features = {
           'age': tf.train.limit_epochs(tf.constant([[0.8], [0.15], [0.]]),
@@ -986,7 +1007,7 @@ class LinearRegressorTest(tf.test.TestCase):
                                       indices=[[0, 0], [0, 1], [2, 0]],
                                       shape=[3, 2])
       }
-      return features, tf.constant(target, dtype=tf.float32)
+      return features, tf.constant(labels, dtype=tf.float32)
 
     feature_columns = [
         tf.contrib.layers.sparse_column_with_hash_bucket('language',
@@ -1005,19 +1026,19 @@ class LinearRegressorTest(tf.test.TestCase):
     predict_input_fn = functools.partial(_input_fn, num_epochs=1)
     predictions = list(
         regressor.predict(input_fn=predict_input_fn, as_iterable=True))
-    self.assertAllClose(predictions, target, atol=0.1)
+    self.assertAllClose(labels, predictions, atol=0.1)
 
   def testCustomMetrics(self):
     """Tests custom evaluation metrics."""
     def _input_fn(num_epochs=None):
       # Create 4 rows, one of them (y = x), three of them (y=Not(x))
-      target = tf.constant([[1.], [0.], [0.], [0.]])
+      labels = tf.constant([[1.], [0.], [0.], [0.]])
       features = {'x': tf.train.limit_epochs(
           tf.ones(shape=[4, 1], dtype=tf.float32), num_epochs=num_epochs)}
-      return features, target
+      return features, labels
 
-    def _my_metric_op(predictions, targets):
-      return tf.reduce_sum(tf.mul(predictions, targets))
+    def _my_metric_op(predictions, labels):
+      return tf.reduce_sum(tf.mul(predictions, labels))
 
     regressor = tf.contrib.learn.LinearRegressor(
         feature_columns=[tf.contrib.layers.real_valued_column('x')],
@@ -1028,8 +1049,11 @@ class LinearRegressorTest(tf.test.TestCase):
         input_fn=_input_fn,
         steps=1,
         metrics={
-            'my_error': tf.contrib.metrics.streaming_mean_squared_error,
-            'my_metric': _my_metric_op
+            'my_error': MetricSpec(
+                metric_fn=tf.contrib.metrics.streaming_mean_squared_error,
+                prediction_key='scores'),
+            'my_metric': MetricSpec(metric_fn=_my_metric_op,
+                                    prediction_key='scores')
         })
     self.assertIn('loss', set(scores.keys()))
     self.assertIn('my_error', set(scores.keys()))
@@ -1040,13 +1064,33 @@ class LinearRegressorTest(tf.test.TestCase):
         _sklearn.mean_squared_error(np.array([1, 0, 0, 0]), predictions),
         scores['my_error'])
 
-    # Tests that when the key is a tuple, an error is raised.
+    # Tests the case where the prediction_key is not "scores".
+    with self.assertRaisesRegexp(KeyError, 'bad_type'):
+      regressor.evaluate(
+          input_fn=_input_fn,
+          steps=1,
+          metrics={
+              'bad_name': MetricSpec(
+                  metric_fn=tf.contrib.metrics.streaming_auc,
+                  prediction_key='bad_type')})
+
+    # Tests the case where the 2nd element of the key is not "scores".
     with self.assertRaises(KeyError):
       regressor.evaluate(
           input_fn=_input_fn,
           steps=1,
           metrics={('my_error', 'predictions'
                    ): tf.contrib.metrics.streaming_mean_squared_error})
+
+    # Tests the case where the tuple of the key doesn't have 2 elements.
+    with self.assertRaises(ValueError):
+      regressor.evaluate(
+          input_fn=_input_fn,
+          steps=1,
+          metrics={
+              ('bad_length_name', 'scores', 'bad_length'):
+                  tf.contrib.metrics.streaming_mean_squared_error
+          })
 
   def testTrainSaveLoad(self):
     """Tests that insures you can save and reload a trained model."""
@@ -1103,14 +1147,22 @@ class LinearRegressorTest(tf.test.TestCase):
         tf.contrib.layers.real_valued_column('age')
     ]
 
+    tf_config = {
+        'cluster': {
+            tf.contrib.learn.TaskType.PS: ['fake_ps_0', 'fake_ps_1']
+        }
+    }
+    with tf.test.mock.patch.dict('os.environ',
+                                 {'TF_CONFIG': json.dumps(tf_config)}):
+      config = tf.contrib.learn.RunConfig(tf_random_seed=1)
+      # Because we did not start a distributed cluster, we need to pass an
+      # empty ClusterSpec, otherwise the device_setter will look for
+      # distributed jobs, such as "/job:ps" which are not present.
+      config._cluster_spec = tf.train.ClusterSpec({})
+
     regressor = tf.contrib.learn.LinearRegressor(
         feature_columns=feature_columns,
-        # Because we did not start a distributed cluster, we need to pass an
-        # empty ClusterSpec, otherwise the device_setter will look for
-        # distributed jobs, such as "/job:ps" which are not present.
-        config=tf.contrib.learn.RunConfig(
-            num_ps_replicas=2, cluster_spec=tf.train.ClusterSpec({}),
-            tf_random_seed=1))
+        config=config)
 
     regressor.fit(input_fn=_input_fn, steps=100)
 
@@ -1403,8 +1455,8 @@ class LinearRegressorTest(tf.test.TestCase):
 def boston_input_fn():
   boston = tf.contrib.learn.datasets.load_boston()
   features = tf.cast(tf.reshape(tf.constant(boston.data), [-1, 13]), tf.float32)
-  target = tf.cast(tf.reshape(tf.constant(boston.target), [-1, 1]), tf.float32)
-  return features, target
+  labels = tf.cast(tf.reshape(tf.constant(boston.target), [-1, 1]), tf.float32)
+  return features, labels
 
 
 class FeatureColumnTest(tf.test.TestCase):

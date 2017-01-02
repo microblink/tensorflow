@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import tempfile
 import numpy as np
 import six
 import tensorflow as tf
@@ -296,7 +297,8 @@ class MutableHashTableOpTest(tf.test.TestCase):
       self.assertAllEqual([0, 1, 2], sorted_values)
 
   def testSaveRestore(self):
-    save_path = os.path.join(self.get_temp_dir(), "hash")
+    save_dir = os.path.join(self.get_temp_dir(), "save_restore")
+    save_path = os.path.join(tempfile.mkdtemp(prefix=save_dir), "hash")
 
     with self.test_session(graph=tf.Graph()) as sess:
       v0 = tf.Variable(10.0, name="v0")
@@ -309,7 +311,7 @@ class MutableHashTableOpTest(tf.test.TestCase):
           tf.string, tf.int64, default_val, name="t1", checkpoint=True)
 
       save = tf.train.Saver()
-      tf.initialize_all_variables().run()
+      tf.global_variables_initializer().run()
 
       # Check that the parameter nodes have been initialized.
       self.assertEqual(10.0, v0.eval())
@@ -867,7 +869,8 @@ class MutableDenseHashTableOpTest(tf.test.TestCase):
                            [100, 0], [100, 0], [100, 0]], pairs)
 
   def testSaveRestore(self):
-    save_path = os.path.join(self.get_temp_dir(), "hash")
+    save_dir = os.path.join(self.get_temp_dir(), "save_restore")
+    save_path = os.path.join(tempfile.mkdtemp(prefix=save_dir), "hash")
 
     with self.test_session(graph=tf.Graph()) as sess:
       default_value = -1
@@ -922,7 +925,8 @@ class MutableDenseHashTableOpTest(tf.test.TestCase):
       self.assertAllEqual([-1, 0, 1, 2, -1], output.eval())
 
   def testVectorSaveRestore(self):
-    save_path = os.path.join(self.get_temp_dir(), "hash")
+    save_dir = os.path.join(self.get_temp_dir(), "vector_save_restore")
+    save_path = os.path.join(tempfile.mkdtemp(prefix=save_dir), "hash")
 
     with self.test_session(graph=tf.Graph()) as sess:
       empty_key = tf.constant([11, 13], tf.int64)
@@ -979,6 +983,65 @@ class MutableDenseHashTableOpTest(tf.test.TestCase):
       output = table.lookup(input_string)
       self.assertAllEqual([[0, 1], [2, 3], [-1, -2], [4, 5], [-1, -2]],
                           output.eval())
+
+  def testVectorScalarSaveRestore(self):
+    save_dir = os.path.join(self.get_temp_dir(), "vector_scalar_save_restore")
+    save_path = os.path.join(tempfile.mkdtemp(prefix=save_dir), "hash")
+
+    with self.test_session(graph=tf.Graph()) as sess:
+      empty_key = tf.constant([11, 13], tf.int64)
+      default_value = tf.constant(-1, tf.int64)
+      keys = tf.constant([[11, 12], [11, 14], [13, 14]], tf.int64)
+      values = tf.constant([0, 1, 2], tf.int64)
+      table = tf.contrib.lookup.MutableDenseHashTable(
+          tf.int64,
+          tf.int64,
+          default_value=default_value,
+          empty_key=empty_key,
+          name="t2",
+          checkpoint=True,
+          initial_num_buckets=32)
+
+      save = tf.train.Saver()
+
+      self.assertAllEqual(0, table.size().eval())
+      table.insert(keys, values).run()
+      self.assertAllEqual(3, table.size().eval())
+      self.assertAllEqual(32, len(table.export()[0].eval()))
+
+      val = save.save(sess, save_path)
+      self.assertTrue(isinstance(val, six.string_types))
+      self.assertEqual(save_path, val)
+
+    with self.test_session(graph=tf.Graph()) as sess:
+      empty_key = tf.constant([11, 13], tf.int64)
+      default_value = tf.constant(-1, tf.int64)
+      table = tf.contrib.lookup.MutableDenseHashTable(
+          tf.int64,
+          tf.int64,
+          default_value=default_value,
+          empty_key=empty_key,
+          name="t2",
+          checkpoint=True,
+          initial_num_buckets=64)
+      table.insert(
+          tf.constant([[11, 12], [13, 15]], tf.int64),
+          tf.constant([3, 4], tf.int64)).run()
+      self.assertAllEqual(2, table.size().eval())
+      self.assertAllEqual(64, len(table.export()[0].eval()))
+
+      save = tf.train.Saver()
+
+      # Restore the saved values in the parameter nodes.
+      save.restore(sess, save_path)
+
+      self.assertAllEqual(3, table.size().eval())
+      self.assertAllEqual(32, len(table.export()[0].eval()))
+
+      input_string = tf.constant(
+          [[11, 12], [11, 14], [11, 15], [13, 14], [13, 15]], tf.int64)
+      output = table.lookup(input_string)
+      self.assertAllEqual([0, 1, -1, 2, -1], output.eval())
 
   def testReprobe(self):
     with self.test_session():
