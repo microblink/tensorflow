@@ -529,7 +529,7 @@ int main(int argc, char* argv[]) {
       }
 
       if ( !quiet_mode ) {
-        LOG( INFO ) << "Model ran for " << local_timer.toc() << " ms";
+        LOG( INFO ) << "Model ran for " << tm << " ms";
 
           // Do something interesting with the results we've generated.
           Status print_status = PrintTopLabels(outputs, labels);
