@@ -57,6 +57,8 @@ limitations under the License.
 #include "CLParameters.hpp"
 #include "fast_executor.h"
 
+#include "rapidjson/prettywriter.h"
+
 #ifdef TF_KERNEL_BENCHMARK
 #include "tensorflow/core/common_runtime/direct_session.h"
 #include "tensorflow/core/common_runtime/threadpool_device.h"
@@ -102,7 +104,7 @@ Status ReadLabelsFile(string file_name, std::vector<string>* result,
 
 // Given an image file name, read in the data, try to decode it as an image,
 // resize it to the requested size, and then scale the values as desired.
-Status ReadTensorFromImageFile(string file_name, const int input_height,
+Status ReadTensorFromImageFile(string file_name, const bool resize_input_image, const int input_height,
                                const int input_width, const float input_mean,
                                const float input_std, const int wanted_channels,
                                std::vector<Tensor>* out_tensors) {
@@ -131,14 +133,18 @@ Status ReadTensorFromImageFile(string file_name, const int input_height,
   // to be in batches, so that they're four-dimensional arrays with indices of
   // [batch, height, width, channel]. Because we only have a single image, we
   // have to add a batch dimension of 1 to the start with ExpandDims().
-  auto dims_expander = ExpandDims(root, float_caster, 0);
-  // Bilinearly resize the image to fit the required dimensions.
-  auto resized = ResizeBilinear(
-      root, dims_expander,
-      Const(root.WithOpName("size"), {input_height, input_width}));
-  // Subtract the mean and divide by the scale.
-  Div(root.WithOpName(output_name), Sub(root, resized, {input_mean}),
-      {input_std});
+  if ( resize_input_image ) {
+      auto dims_expander = ExpandDims(root, float_caster, 0);
+      // Bilinearly resize the image to fit the required dimensions.
+      auto resized = ResizeBilinear(
+          root, dims_expander,
+          Const(root.WithOpName("size"), {input_height, input_width}));
+      // Subtract the mean and divide by the scale.
+      Div(root.WithOpName(output_name), Sub(root, resized, {input_mean}),
+          {input_std});
+  } else {
+      ExpandDims(root.WithOpName( output_name ), float_caster, 0);
+  }
 
   // This runs the GraphDef network definition that we've just constructed, and
   // returns the results in the output tensor.
@@ -226,29 +232,30 @@ Status GetTopLabels(const std::vector<Tensor>& outputs, int how_many_labels,
 // this prints out the top five highest-scoring values.
 Status PrintTopLabels(const std::vector<Tensor>& outputs,
                       string labels_file_name) {
-  std::vector<string> labels;
-  size_t label_count;
-  Status read_labels_status =
-      ReadLabelsFile(labels_file_name, &labels, &label_count);
-  if (!read_labels_status.ok()) {
-    LOG(ERROR) << read_labels_status;
-    return read_labels_status;
-  }
-  const int how_many_labels = std::min(5, static_cast<int>(label_count));
-  Tensor indices;
-  Tensor scores;
-  TF_RETURN_IF_ERROR(GetTopLabels(outputs, how_many_labels, &indices, &scores));
-  tensorflow::TTypes<float>::Flat scores_flat = scores.flat<float>();
-  tensorflow::TTypes<int32>::Flat indices_flat = indices.flat<int32>();
-  for (int pos = 0; pos < how_many_labels; ++pos) {
-    const int label_index = indices_flat(pos);
-    const float score = scores_flat(pos);
-    if( label_index >= labels.size() ) {
-        LOG( INFO ) << "Index outside of labels file: " << label_index << ": " << score;
-    } else {
-        LOG(INFO) << labels[label_index] << " (" << label_index << "): " << score;
+    if ( !labels_file_name.empty() ) {
+        std::vector<string> labels;
+        size_t label_count;
+        Status read_labels_status = ReadLabelsFile(labels_file_name, &labels, &label_count);
+        if (!read_labels_status.ok()) {
+            LOG(ERROR) << read_labels_status;
+            return read_labels_status;
+        }
+        const int how_many_labels = std::min(5, static_cast<int>(label_count));
+        Tensor indices;
+        Tensor scores;
+        TF_RETURN_IF_ERROR(GetTopLabels(outputs, how_many_labels, &indices, &scores));
+        tensorflow::TTypes<float>::Flat scores_flat = scores.flat<float>();
+        tensorflow::TTypes<int32>::Flat indices_flat = indices.flat<int32>();
+        for (int pos = 0; pos < how_many_labels; ++pos) {
+            const int label_index = indices_flat(pos);
+            const float score = scores_flat(pos);
+            if( label_index >= labels.size() ) {
+                LOG( INFO ) << "Index outside of labels file: " << label_index << ": " << score;
+            } else {
+                LOG(INFO) << labels[label_index] << " (" << label_index << "): " << score;
+            }
+        }
     }
-  }
   return Status::OK();
 }
 
@@ -372,11 +379,11 @@ void list_files_in_folder( const std::string& folderName, std::vector<std::strin
 
 void print_help() {
     printf( "Running: ./tf_benchmark --model=path/to/model.pb \n"
-            "                        --model-labels=path/to/model-labels.txt \n"
-            "                        --input-size=widthxheight \n"
             "                        --img-folder=path/to/images/folder \n"
             "                        --input-layer-name=INPUT_LAYER_NAME \n"
             "                        --output-layer-name=OUTPUT_LAYER_NAME \n"
+            "                       [--model-labels=path/to/model-labels.txt] \n"
+            "                       [--input-size=widthxheight] \n"
             "                       [--wanted-input-channels=3] \n"
             "                       [--input-mean=0] \n"
             "                       [--input-std=1] \n" );
@@ -385,6 +392,7 @@ void print_help() {
 int main(int argc, char* argv[]) {
   CLParameters params( argc, argv );
 
+  bool resize_input_image = false;
   int32 input_mean = 0;
   int32 input_std = 1;
 
@@ -398,24 +406,33 @@ int main(int argc, char* argv[]) {
   std::string input_mean_str = params.getParam( "input-mean" );
   std::string input_std_str = params.getParam( "input-std" );
 
-  auto required_params = { input_layer, output_layer, input_dim, image_root, labels, graph_path };
+  auto required_params = { input_layer, output_layer, image_root, graph_path };
   if( std::any_of( required_params.begin(), required_params.end(), []( const auto& str ) { return str.empty(); } ) ) {
       print_help();
       return 1;
   }
 
+  int32 input_width = -1;
+  int32 input_height = -1;
+
+  bool quiet_mode = labels.empty();
+
   // extract dimensions
-  auto x_pos = input_dim.find( 'x' );
-  if ( x_pos == std::string::npos ) {
-      LOG( ERROR ) << "input-size must be in format widthxheight";
-      return 1;
-  }
+  if( !input_dim.empty() ) {
+      auto x_pos = input_dim.find( 'x' );
+      if ( x_pos == std::string::npos ) {
+          LOG( ERROR ) << "input-size must be in format widthxheight";
+          return 1;
+      }
 
-  auto w_str = input_dim.substr( 0, x_pos );
-  auto h_str = input_dim.substr( x_pos + 1 );
+      auto w_str = input_dim.substr( 0, x_pos );
+      auto h_str = input_dim.substr( x_pos + 1 );
 
-  int32 input_width = atoi( w_str.c_str() );
-  int32 input_height = atoi( h_str.c_str() );
+      input_width = atoi( w_str.c_str() );
+      input_height = atoi( h_str.c_str() );
+
+      resize_input_image = true;
+    }
 
   int wanted_input_channels = 3;
   if ( !input_channels_str.empty() ) {
@@ -430,56 +447,12 @@ int main(int argc, char* argv[]) {
       input_std = atoi( input_std_str.c_str() );
   }
 
-//  bool self_test = false;
-//  string root_dir = "";
-//  string image = "tensorflow/trained_ema/images/1.jpg";
-
-//  int32 input_width = 133;
-//  int32 input_height = 50;
-//  std::string image_root = "tensorflow/trained_ema/images";
-//  string graph = "tensorflow/trained_ema/ema_50_133.pb";
-//  int img_count = 51;
-
-//  int32 input_width = 1330;
-//  int32 input_height = 500;
-//  std::string image_root = "tensorflow/trained_bigdora_grayscale/images";
-//  string graph = "tensorflow/trained_bigdora_grayscale/bigdora_model.pb";
-//  int img_count = 19;
-
-
-
-//  std::vector<Flag> flag_list = {
-//      Flag("image", &image, "image to be processed"),
-//      Flag("graph", &graph, "graph to be executed"),
-//      Flag("labels", &labels, "name of file containing labels"),
-//      Flag("input_width", &input_width, "resize image to this width in pixels"),
-//      Flag("input_height", &input_height,
-//           "resize image to this height in pixels"),
-//      Flag("input_mean", &input_mean, "scale pixel values to this mean"),
-//      Flag("input_std", &input_std, "scale pixel values to this std deviation"),
-//      Flag("input_layer", &input_layer, "name of input layer"),
-//      Flag("output_layer", &output_layer, "name of output layer"),
-//      Flag("self_test", &self_test, "run a self test"),
-//      Flag("root_dir", &root_dir,
-//           "interpret image and graph file names relative to this directory"),
-//  };
-
-//  string usage = tensorflow::Flags::Usage(argv[0], flag_list);
-//  const bool parse_result = tensorflow::Flags::Parse(&argc, argv, flag_list);
-//  if (!parse_result) {
-//    LOG(ERROR) << usage;
-//    return -1;
-//  }
-
   // We need to call this to set up global state for TensorFlow.
   tensorflow::port::InitMain(argv[0], &argc, &argv);
 //  if (argc > 1) {
 //    LOG(ERROR) << "Unknown argument " << argv[1] << "\n" << usage;
 //    return -1;
 //  }
-
-  // First we load and initialize the model.
-//  string graph_path = tensorflow::io::JoinPath(root_dir, graph);
 
   std::unique_ptr<tensorflow::Session> session;
   Status load_graph_status = LoadGraph(graph_path, &session);
@@ -496,21 +469,27 @@ int main(int argc, char* argv[]) {
   std::vector< std::string > images;
   list_files_in_folder( image_root, images );
 
+  std::sort( images.begin(), images.end() );
+
   ElapsedTimer global_timer;
 
   double times = 0.0;
   int num = 0;
   bool first = true;
 
+  std::vector< Tensor > final_outputs;
+  std::vector< double > image_times;
+
   for ( const auto& image_path : images ) {
-      LOG( INFO ) << "Running image " << image_path;
+      if( !quiet_mode ) {
+        LOG( INFO ) << "Running image " << image_path;
+      }
 
       // Get the image from disk as a float array of numbers, resized and normalized
       // to the specifications the main graph expects.
       std::vector<Tensor> resized_tensors;
-//      string image_path = tensorflow::io::JoinPath(root_dir, image);
       Status read_tensor_status =
-          ReadTensorFromImageFile(image_path, input_height, input_width, input_mean,
+          ReadTensorFromImageFile(image_path, resize_input_image, input_height, input_width, input_mean,
                                   input_std, wanted_input_channels, &resized_tensors);
       if (!read_tensor_status.ok()) {
         LOG(ERROR) << read_tensor_status;
@@ -542,46 +521,80 @@ int main(int argc, char* argv[]) {
           ++num;
       }
 
-      LOG( INFO ) << "Model ran for " << local_timer.toc() << " ms";
-
-
-//      if (!run_status.ok()) {
-//        LOG(ERROR) << "Running model failed: " << run_status;
-//        return -1;
-//      } else {
-//          LOG(ERROR) << run_status;
-//          LOG(ERROR) << data[0] << ", " << data[1] << ", " << data[2];
-//      }
-
-      // This is for automated testing to make sure we get the expected result with
-      // the default settings. We know that label 866 (military uniform) should be
-      // the top label for the Admiral Hopper image.
-//      if (self_test) {
-//        bool expected_matches;
-//        Status check_status = CheckTopLabel(outputs, 866, &expected_matches);
-//        if (!check_status.ok()) {
-//          LOG(ERROR) << "Running check failed: " << check_status;
-//          return -1;
-//        }
-//        if (!expected_matches) {
-//          LOG(ERROR) << "Self-test failed!";
-//          return -1;
-//        }
-//      }
-
-      // Do something interesting with the results we've generated.
-      Status print_status = PrintTopLabels(outputs, labels);
-      if (!print_status.ok()) {
-        LOG(ERROR) << "Running print failed: " << print_status;
-        return -1;
+      if( outputs.size() > 0 ) {
+        final_outputs.push_back( outputs[ 0 ] );
+        image_times.push_back( tm );
+      } else {
+          LOG( ERROR ) << "Model did not produce a single output!";
       }
+
+      if ( !quiet_mode ) {
+        LOG( INFO ) << "Model ran for " << local_timer.toc() << " ms";
+
+          // Do something interesting with the results we've generated.
+          Status print_status = PrintTopLabels(outputs, labels);
+          if (!print_status.ok()) {
+            LOG(ERROR) << "Running print failed: " << print_status;
+            return -1;
+          }
+      }
+
       first = false;
   }
 
-  LOG( INFO ) << "All images processed in " << global_timer.toc() << " ms";
-  LOG( INFO ) << "Average per image: " << ( times / static_cast< double >( num ) ) << " ms";
+  double total_time = global_timer.toc();
+  double average_per_image = times / static_cast< double >( num );
+
+  if( !quiet_mode ) {
+      LOG( INFO ) << "All images processed in " << total_time << " ms";
+      LOG( INFO ) << "Average per image: " << average_per_image << " ms";
+  }
+
+  rapidjson::StringBuffer buffer;
+  rapidjson::PrettyWriter< rapidjson::StringBuffer > writer( buffer );
+
+  writer.StartObject();
+  writer.String( "runner" ); writer.String( "tensorflow" );
+  writer.String( "model" ); writer.String( graph_path.c_str() );
+  writer.String( "input_layer_name" ); writer.String( input_layer.c_str() );
+  writer.String( "output_layer_name" ); writer.String( output_layer.c_str() );
+  writer.String( "will_resize_images" ); writer.Bool( !input_dim.empty() );
+  if( !input_dim.empty() ) {
+      writer.String( "images_resized_to" ); writer.String( input_dim.c_str() );
+  }
+  writer.String( "total_time" ); writer.Double( total_time );
+  writer.String( "total_images" ); writer.Int( static_cast< int >( images.size() ) );
+  writer.String( "average_per_image" ); writer.Double( average_per_image );
+
+  writer.String( "image_info" );
+  writer.StartObject();
+
+  for( auto i = 0U; i < images.size(); ++i ) {
+      writer.String( images[ i ].c_str() );
+      writer.StartObject();
+
+      writer.String( "time" ); writer.Double( image_times[ i ] );
+      writer.String( "output" );
+      writer.StartArray();
+
+      auto scores_flat = final_outputs[ i ].flat<float>();
+      auto num_elements = scores_flat.size();
+      for( auto i = 0U; i < num_elements; ++i ) {
+          writer.Double( scores_flat( i ) );
+      }
+
+      writer.EndArray();
+      writer.EndObject();
+  }
+
+  writer.EndObject();
+
 
 #ifdef TF_KERNEL_BENCHMARK
+
+    writer.String( "average_kernel_times" );
+    writer.StartObject();
+
     // extract kernel times from threadpool_device
     tensorflow::DirectSession* ds = static_cast< tensorflow::DirectSession* >( session.get() );
     auto executors = ds->executors();
@@ -591,9 +604,20 @@ int main(int argc, char* argv[]) {
 
     for( const auto& pair : kernel_times ) {
         double avg = pair.second / num;
-        LOG( INFO ) << "Average for kernel " << pair.first << ": " << avg << " ms";
+        if( !quiet_mode ) {
+            LOG( INFO ) << "Average for kernel " << pair.first << ": " << avg << " ms";
+        }
+        writer.String( pair.first.c_str() ); writer.Double( avg );
     }
+
+    writer.EndObject();
 #endif
+
+    writer.EndObject();
+
+    FILE* f_output = fopen( "tensorflow_bench.json", "wt" );
+    fprintf( f_output, "%s\n", buffer.GetString() );
+    fclose( f_output );
 
   return 0;
 }
