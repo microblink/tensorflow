@@ -44,32 +44,36 @@ set(tf_cc_op_lib_names
     "user_ops"
 )
 foreach(tf_cc_op_lib_name ${tf_cc_op_lib_names})
-  if ( tensorflow_SEPARATE_STATIC_LIBS )
-    add_executable(${tf_cc_op_lib_name}_gen_cc ${tf_cc_op_gen_main_srcs})
-    target_link_libraries(${tf_cc_op_lib_name}_gen_cc PRIVATE
-        ${wholearchive_linker_option}
-        tf_${tf_cc_op_lib_name}
-        tf_core_lib
-        tf_core_framework
-        tf_protos_cc
-        ${tensorflow_EXTERNAL_LIBRARIES}
-    )
-  else()
-    # Using <TARGET_OBJECTS:...> to work around an issue where no ops were
-    # registered (static initializers dropped by the linker because the ops
-    # are not used explicitly in the *_gen_cc executables).
-    add_executable(${tf_cc_op_lib_name}_gen_cc
-        $<TARGET_OBJECTS:tf_cc_op_gen_main>
-        $<TARGET_OBJECTS:tf_${tf_cc_op_lib_name}>
-        $<TARGET_OBJECTS:tf_core_lib>
-        $<TARGET_OBJECTS:tf_core_framework>
-    )
+    if( NOT CMAKE_CROSSCOMPILING )
+        if ( tensorflow_SEPARATE_STATIC_LIBS )
+            add_executable(${tf_cc_op_lib_name}_gen_cc ${tf_cc_op_gen_main_srcs})
+            target_link_libraries(${tf_cc_op_lib_name}_gen_cc PRIVATE
+                ${wholearchive_linker_option}
+                tf_${tf_cc_op_lib_name}
+                tf_core_lib
+                tf_core_framework
+                tf_protos_cc
+                ${tensorflow_EXTERNAL_LIBRARIES}
+            )
+        else()
+            # Using <TARGET_OBJECTS:...> to work around an issue where no ops were
+            # registered (static initializers dropped by the linker because the ops
+            # are not used explicitly in the *_gen_cc executables).
+            add_executable(${tf_cc_op_lib_name}_gen_cc
+                $<TARGET_OBJECTS:tf_cc_op_gen_main>
+                $<TARGET_OBJECTS:tf_${tf_cc_op_lib_name}>
+                $<TARGET_OBJECTS:tf_core_lib>
+                $<TARGET_OBJECTS:tf_core_framework>
+            )
 
-    target_link_libraries(${tf_cc_op_lib_name}_gen_cc PRIVATE
-        tf_protos_cc
-        ${tensorflow_EXTERNAL_LIBRARIES}
-    )
-  endif()
+            target_link_libraries(${tf_cc_op_lib_name}_gen_cc PRIVATE
+                tf_protos_cc
+                ${tensorflow_EXTERNAL_LIBRARIES}
+            )
+        endif()
+
+        export( TARGETS ${tf_cc_op_lib_name}_gen_cc APPEND FILE ${CMAKE_BINARY_DIR}/executables.cmake )
+    endif()
 
   set(cc_ops_include_internal 0)
   if(${tf_cc_op_lib_name} STREQUAL "sendrecv_ops")

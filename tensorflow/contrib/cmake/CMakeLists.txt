@@ -88,6 +88,22 @@ if(MSVC)
   set( wholearchive_linker_option -WHOLEARCHIVE )
 endif()
 
+if( ANDROID_ABI )
+    add_definitions( -DPLATFORM_POSIX -DTF_LEAN_BINARY -DGOOGLE_PROTOBUF_NO_RTTI -DGOOGLE_PROTOBUF_NO_STATIC_INITIALIZER )
+    add_compile_options( -fno-rtti )
+endif()
+
+if( CMAKE_CROSSCOMPILING )
+    if( NOT CMAKE_HOST_BINARY_DIR )
+        message( FATAL_ERROR "Please define CMAKE_HOST_BINARY_DIR to point to host binary dir where proto_text exe has been built" )
+    endif()
+    if( IS_ABSOLUTE ${CMAKE_HOST_BINARY_DIR} )
+        include( ${CMAKE_HOST_BINARY_DIR}/executables.cmake )
+    else()
+        include( ${CMAKE_BINARY_DIR}/${CMAKE_HOST_BINARY_DIR}/executables.cmake )
+    endif()
+endif()
+
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options( -g -fno-exceptions -std=gnu++1z $<$<CONFIG:Release>:-march=native> $<$<CONFIG:Release>:-mtune=native> $<$<CONFIG:Release>:-Ofast> ) #-flto
   if( APPLE )

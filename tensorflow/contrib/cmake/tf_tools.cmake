@@ -8,19 +8,23 @@ file(GLOB tf_tools_srcs
 
 set(proto_text "proto_text")
 
-if (tensorflow_SEPARATE_STATIC_LIBS)
-  add_executable(${proto_text} ${tf_tools_srcs})
-  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_protos_cc ${wholearchive_linker_option} tf_core_lib)
-else()
-  add_executable(${proto_text}
-      ${tf_tools_srcs}
-      $<TARGET_OBJECTS:tf_core_lib>
-  )
+if( NOT CMAKE_CROSSCOMPILING )
+    if (tensorflow_SEPARATE_STATIC_LIBS)
+      add_executable(${proto_text} ${tf_tools_srcs})
+      target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_protos_cc ${wholearchive_linker_option} tf_core_lib)
+    else()
+      add_executable(${proto_text}
+          ${tf_tools_srcs}
+          $<TARGET_OBJECTS:tf_core_lib>
+      )
 
-  target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_protos_cc)
-endif()
+      target_link_libraries(${proto_text} PUBLIC ${tensorflow_EXTERNAL_LIBRARIES} tf_protos_cc)
+    endif()
 
-add_dependencies(${proto_text} tf_core_lib)
-if (tensorflow_ENABLE_GRPC_SUPPORT)
-  add_dependencies(${proto_text} grpc)
+    add_dependencies(${proto_text} tf_core_lib)
+    if (tensorflow_ENABLE_GRPC_SUPPORT)
+      add_dependencies(${proto_text} grpc)
+    endif()
+
+    export( TARGETS ${proto_text} APPEND FILE ${CMAKE_BINARY_DIR}/executables.cmake )
 endif()

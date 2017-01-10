@@ -10,7 +10,11 @@ if(WIN32)
   set(PROTOBUF_ADDITIONAL_CMAKE_OPTIONS	-Dprotobuf_MSVC_STATIC_RUNTIME:BOOL=OFF -A x64)
 else()
   set(protobuf_STATIC_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/protobuf/src/protobuf/libprotobuf.a)
-  set(PROTOBUF_PROTOC_EXECUTABLE ${CMAKE_CURRENT_BINARY_DIR}/protobuf/src/protobuf/protoc)
+    if( CMAKE_CROSSCOMPILING )
+      set(PROTOBUF_PROTOC_EXECUTABLE ${CMAKE_HOST_BINARY_DIR}/protobuf/src/protobuf/protoc)
+    else()
+        set(PROTOBUF_PROTOC_EXECUTABLE ${CMAKE_CURRENT_BINARY_DIR}/protobuf/src/protobuf/protoc)
+    endif()
 endif()
 
 ExternalProject_Add(protobuf
@@ -34,3 +38,7 @@ ExternalProject_Add(protobuf
         -DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON
         -DZLIB_ROOT:STRING=${ZLIB_INSTALL}
 )
+
+if( NOT CMAKE_CROSSCOMPILING )
+    export( TARGETS ${protoc} APPEND FILE ${CMAKE_BINARY_DIR}/executables.cmake )
+endif()
