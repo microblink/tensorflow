@@ -52,8 +52,11 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/public/session.h"
 #include "tensorflow/core/util/command_line_flags.h"
+#include "tensorflow/core/public/version.h"
+
 
 #include "ElapsedTimer.hpp"
+#include "DateTime.hpp"
 #include "CLParameters.hpp"
 #include "fast_executor.h"
 
@@ -386,7 +389,8 @@ void print_help() {
             "                       [--input-size=widthxheight] \n"
             "                       [--wanted-input-channels=3] \n"
             "                       [--input-mean=0] \n"
-            "                       [--input-std=1] \n" );
+            "                       [--input-std=1] \n"
+            "                       [--dump-image-info]\n" );
 }
 
 int main(int argc, char* argv[]) {
@@ -405,6 +409,7 @@ int main(int argc, char* argv[]) {
   std::string input_channels_str = params.getParam( "wanted-input-channels" );
   std::string input_mean_str = params.getParam( "input-mean" );
   std::string input_std_str = params.getParam( "input-std" );
+  bool        dump_image_info    = !params.getParam( "dump-image-info"       ).empty();
 
   auto required_params = { input_layer, output_layer, image_root, graph_path };
   if( std::any_of( required_params.begin(), required_params.end(), []( const auto& str ) { return str.empty(); } ) ) {
@@ -542,53 +547,55 @@ int main(int argc, char* argv[]) {
       first = false;
   }
 
-  double total_time = global_timer.toc();
-  double average_per_image = times / static_cast< double >( num );
+    double total_time = global_timer.toc();
+    double average_per_image = times / static_cast< double >( num );
 
-  if( !quiet_mode ) {
-      LOG( INFO ) << "All images processed in " << total_time << " ms";
-      LOG( INFO ) << "Average per image: " << average_per_image << " ms";
-  }
+    if( !quiet_mode ) {
+        LOG( INFO ) << "All images processed in " << total_time << " ms";
+        LOG( INFO ) << "Average per image: " << average_per_image << " ms";
+    }
 
-  rapidjson::StringBuffer buffer;
-  rapidjson::PrettyWriter< rapidjson::StringBuffer > writer( buffer );
+    rapidjson::StringBuffer buffer;
+    rapidjson::PrettyWriter< rapidjson::StringBuffer > writer( buffer );
 
-  writer.StartObject();
-  writer.String( "runner" ); writer.String( "tensorflow" );
-  writer.String( "model" ); writer.String( graph_path.c_str() );
-  writer.String( "input_layer_name" ); writer.String( input_layer.c_str() );
-  writer.String( "output_layer_name" ); writer.String( output_layer.c_str() );
-  writer.String( "will_resize_images" ); writer.Bool( !input_dim.empty() );
-  if( !input_dim.empty() ) {
+    DateTime now;
+    DateTimeFormatter dt_format{ "YYYY-MM-DD" };
+
+    char hostname[256];
+    gethostname( hostname, 256 );
+    hostname[ 255 ] = '\0';
+
+    writer.StartObject();
+    writer.String( "runner" ); writer.String( "tensorflow" );
+    writer.String( "runner_version" ); writer.String( TF_VERSION_STRING );
+    writer.String( "benchmark_completed_at" ); writer.String( dt_format.format( now ).c_str() );
+    writer.String( "hostname" ); writer.String( hostname );
+    // OS name
+    writer.String( "platform" );
+#ifdef __APPLE__
+#ifdef PLATFORM_IOS
+    writer.String( "iOS" );
+#else
+    writer.String( "macOS" );
+#endif
+#elif defined( _WIN32 )
+    writer.String( "windows" );
+#elif defined( __ANDROID__ )
+    writer.String( "android" );
+#else
+    writer.String( "linux" );
+#endif
+
+    writer.String( "model" ); writer.String( graph_path.c_str() );
+    writer.String( "input_layer_name" ); writer.String( input_layer.c_str() );
+    writer.String( "output_layer_name" ); writer.String( output_layer.c_str() );
+    writer.String( "will_resize_images" ); writer.Bool( !input_dim.empty() );
+    if( !input_dim.empty() ) {
       writer.String( "images_resized_to" ); writer.String( input_dim.c_str() );
-  }
-  writer.String( "total_time" ); writer.Double( total_time );
-  writer.String( "total_images" ); writer.Int( static_cast< int >( images.size() ) );
-  writer.String( "average_per_image" ); writer.Double( average_per_image );
-
-  writer.String( "image_info" );
-  writer.StartObject();
-
-  for( auto i = 0U; i < images.size(); ++i ) {
-      writer.String( images[ i ].c_str() );
-      writer.StartObject();
-
-      writer.String( "time" ); writer.Double( image_times[ i ] );
-      writer.String( "output" );
-      writer.StartArray();
-
-      auto scores_flat = final_outputs[ i ].flat<float>();
-      auto num_elements = scores_flat.size();
-      for( auto i = 0U; i < num_elements; ++i ) {
-          writer.Double( scores_flat( i ) );
-      }
-
-      writer.EndArray();
-      writer.EndObject();
-  }
-
-  writer.EndObject();
-
+    }
+    writer.String( "total_time" ); writer.Double( total_time );
+    writer.String( "total_images" ); writer.Int( static_cast< int >( images.size() ) );
+    writer.String( "average_per_image" ); writer.Double( average_per_image );
 
 #ifdef TF_KERNEL_BENCHMARK
 
@@ -613,11 +620,40 @@ int main(int argc, char* argv[]) {
     writer.EndObject();
 #endif
 
+    if( dump_image_info ) {
+        writer.String( "image_info" );
+        writer.StartObject();
+
+        for( auto i = 0U; i < images.size(); ++i ) {
+            writer.String( images[ i ].c_str() );
+            writer.StartObject();
+
+            writer.String( "time" ); writer.Double( image_times[ i ] );
+            writer.String( "output" );
+            writer.StartArray();
+
+            auto scores_flat = final_outputs[ i ].flat<float>();
+            auto num_elements = scores_flat.size();
+            for( auto i = 0U; i < num_elements; ++i ) {
+              writer.Double( scores_flat( i ) );
+            }
+
+            writer.EndArray();
+            writer.EndObject();
+        }
+
+        writer.EndObject();
+    }
+
     writer.EndObject();
 
     FILE* f_output = fopen( "tensorflow_bench.json", "wt" );
-    fprintf( f_output, "%s\n", buffer.GetString() );
-    fclose( f_output );
+    if( f_output != nullptr ) {
+        fprintf( f_output, "%s\n", buffer.GetString() );
+        fclose( f_output );
+    } else {
+        LOG( ERROR ) << "Failed to open tensorflow_bench.json for writing";
+    }
 
   return 0;
 }

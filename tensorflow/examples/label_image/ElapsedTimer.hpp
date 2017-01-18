@@ -18,7 +18,8 @@
 
 #pragma once
 
-#include <string>
+#include <iosfwd>  // for string
+#include <chrono>
 
 #if defined _WIN32 || defined _WIN64
 #include <windows.h>
@@ -42,13 +43,6 @@ public:
     
     static std::string generateHumanReadableInterval(double ms);
 private:
-#if (defined PLATFORM_IOS) || (defined TARGET_IPHONE_SIMULATOR && TARGET_IPHONE_SIMULATOR==1) || (defined TARGET_OS_IPHONE && TARGET_OS_IPHONE==1)
-    uint64_t refTime_;
-#elif defined _WIN32 || defined _WIN64
-    LARGE_INTEGER refTime_; // ticks at reference time
-    LARGE_INTEGER frequency_; // ticks per second
-#else
-    double refTime_;
-#endif
+    std::chrono::high_resolution_clock::time_point ref_time_;
 };
 

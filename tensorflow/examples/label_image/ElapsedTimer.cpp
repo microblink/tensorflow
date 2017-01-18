@@ -16,69 +16,29 @@
  * REVERSE ENGINEER, DECOMPILE, OR DISASSEMBLE IT.
  */
 
+#include <math.h>      // for floor, modf
+#include <cstdint>     // for timeval
+#include <sstream>     // for basic_ostream, operator<<, stringstream, string
+
 #include "ElapsedTimer.hpp"
-#include <math.h>
 
-#include <sstream>
-
-#if !defined _WIN32 && !defined _WIN64
-#include <sys/time.h>
-#endif
-
-#if (defined PLATFORM_IOS) || (defined TARGET_IPHONE_SIMULATOR && TARGET_IPHONE_SIMULATOR==1) || (defined TARGET_OS_IPHONE && TARGET_OS_IPHONE==1)
-#include <mach/mach_time.h>
-#endif
 
 ElapsedTimer::ElapsedTimer() {
-#if defined _WIN32 || defined _WIN64
-    // get ticks per second
-    QueryPerformanceFrequency(&frequency_);
-#endif
     tic();
 }
 
 ElapsedTimer::~ElapsedTimer() {}
 
 void ElapsedTimer::tic() {
-#if (defined PLATFORM_IOS) || (defined TARGET_IPHONE_SIMULATOR && TARGET_IPHONE_SIMULATOR==1) || (defined TARGET_OS_IPHONE && TARGET_OS_IPHONE==1)
-    refTime_ = mach_absolute_time();
-#elif defined _WIN32 || defined _WIN64
-    // start timer
-    QueryPerformanceCounter(&refTime_);
-#else
-    struct timeval start;
-    gettimeofday(&start, NULL);
-    refTime_ = (double)start.tv_sec + ((double)start.tv_usec / 1000000.0);
-#endif
+    ref_time_ = std::chrono::high_resolution_clock::now();
 }
 
 double ElapsedTimer::toc() const {
-    double duration;
+    auto timestamp = std::chrono::high_resolution_clock::now();
 
-#if (defined PLATFORM_IOS) || (defined TARGET_IPHONE_SIMULATOR && TARGET_IPHONE_SIMULATOR==1) || (defined TARGET_OS_IPHONE && TARGET_OS_IPHONE==1)
-    /* Get the timebase info */
-    mach_timebase_info_data_t info;
-    mach_timebase_info(&info);
+    auto duration = timestamp - ref_time_;
 
-    uint64_t timediff = mach_absolute_time() - refTime_;
-
-    duration = timediff * info.numer;
-    duration /= info.denom;
-    duration /= 1000000;
-#elif defined _WIN32 || defined _WIN64
-    LARGE_INTEGER timestamp;
-    QueryPerformanceCounter(&timestamp);
-    duration = (timestamp.QuadPart - refTime_.QuadPart) * 1000.0 / frequency_.QuadPart;
-#else
-    struct timeval end;
-    gettimeofday(&end, NULL);
-
-    double startV, endV;
-    startV = refTime_;
-    endV = (double)end.tv_sec + ((double)end.tv_usec / 1000000.0);
-    duration = (endV - startV) * 1000;
-#endif
-    return duration;
+    return static_cast< double >( std::chrono::duration_cast< std::chrono::nanoseconds >( duration ).count() ) / 1e6;
 }
 
 std::string ElapsedTimer::generateHumanReadableInterval(double ms) {
