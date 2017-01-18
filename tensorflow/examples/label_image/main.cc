@@ -619,13 +619,52 @@ int main(int argc, char* argv[]) {
     auto executors = ds->executors();
     LOG( INFO ) << "There are " << executors.size() << " executors";
     tensorflow::ThreadPoolDevice* tpdev = static_cast< tensorflow::ThreadPoolDevice* >( executors[0]->device() );
-    const auto& kernel_times = tpdev->kernel_times();
+    auto kernel_times = tpdev->kernel_times();
+
+    auto ignore_keywords = { "/read", "_SOURCE", "_send", "/weights", "/shape" };
+
+    // process kernel_times
+    for( auto pair_it = kernel_times.begin(); pair_it != kernel_times.end(); ) {
+        const auto& pair = *pair_it;
+
+        // ignore virtual kernels
+        bool ignore = false;
+        for ( const auto& k : ignore_keywords ) {
+            if ( pair.first.find( k ) != std::string::npos ) {
+                ignore = true;
+                break;
+            }
+        }
+
+        // BiasAdd must be added to kernel above
+        if ( !ignore && pair.first.find( "/BiasAdd" ) != std::string::npos ) {
+            auto prev_it = pair_it;
+            --prev_it;
+            prev_it->second += pair.second;
+            ignore = true;
+        }
+
+        // Reshape must be added to kernel below
+        if ( !ignore && pair.first.find( "/Reshape" ) != std::string::npos ) {
+            auto next_it = pair_it;
+            ++next_it;
+            next_it->second += pair.second;
+            ignore = true;
+        }
+
+        if ( ignore ) {
+            pair_it = kernel_times.erase( pair_it );
+        } else {
+            ++pair_it;
+        }
+    }
 
     for( const auto& pair : kernel_times ) {
         double avg = pair.second / num;
         if( !quiet_mode ) {
             LOG( INFO ) << "Average for kernel " << pair.first << ": " << avg << " ms";
         }
+
         writer.String( pair.first.c_str() ); writer.Double( avg );
     }
 
