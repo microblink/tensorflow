@@ -393,6 +393,17 @@ void print_help() {
             "                       [--dump-image-info]\n" );
 }
 
+void filter_out_images( std::vector< std::string >& images ) {
+    for( auto it = images.begin(); it != images.end(); ) {
+        const auto& fname = *it;
+        if ( fname.find( ".jpg" ) == std::string::npos && fname.find( ".png" ) == std::string::npos ) {
+            it = images.erase( it );
+        } else {
+            ++it;
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
   CLParameters params( argc, argv );
 
@@ -473,6 +484,7 @@ int main(int argc, char* argv[]) {
 
   std::vector< std::string > images;
   list_files_in_folder( image_root, images );
+  filter_out_images( images );
 
   std::sort( images.begin(), images.end() );
 
