@@ -80,6 +80,22 @@ file(GLOB_RECURSE tf_core_kernels_exclude_srcs
    "${tensorflow_source_dir}/tensorflow/core/kernels/debug_ops.h"  # stream_executor dependency
    "${tensorflow_source_dir}/tensorflow/core/kernels/debug_ops.cc"  # stream_executor dependency
 )
+
+if( ANDROID_TOOLCHAIN STREQUAL "gcc" )
+    list( APPEND tf_core_kernels_exclude_srcs
+        # those kernels do not compile on android with GCC
+        "${tensorflow_source_dir}/tensorflow/core/kernels/cwise_op_digamma.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/cwise_op_erf.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/cwise_op_igammas.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/cwise_op_lgamma.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/cwise_op_erfc.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/cwise_op_zeta.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/hexagon/graph_transferer.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/hexagon/hexagon_ops_definitions.cc"
+        "${tensorflow_source_dir}/tensorflow/core/kernels/hexagon/i_graph_transfer_ops_definitions.cc"
+    )
+endif()
+
 list(REMOVE_ITEM tf_core_kernels_srcs ${tf_core_kernels_exclude_srcs})
 
 if(WIN32)

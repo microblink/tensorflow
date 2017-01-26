@@ -9,7 +9,8 @@ set(jpeg_INSTALL ${CMAKE_CURRENT_BINARY_DIR}/jpeg/install)
 if(WIN32)
   set(jpeg_STATIC_LIBRARIES ${jpeg_INSTALL}/lib/libjpeg.lib)
 else()
-  set(jpeg_STATIC_LIBRARIES ${jpeg_INSTALL}/lib/libjpeg.a)
+  set(jpeg_STATIC_LIBRARIES ${jpeg_INSTALL}/lib/liblibjpeg.a)
+  set(ENV{CFLAGS} "$ENV{CFLAGS} -fPIC")
 endif()
 
 set(jpeg_HEADERS
@@ -27,7 +28,7 @@ set(jpeg_HEADERS
     "${jpeg_BUILD}/transupp.h"
 )
 
-if (WIN32)
+#if (WIN32)
     ExternalProject_Add(jpeg
         PREFIX jpeg
         URL ${jpeg_URL}
@@ -39,6 +40,8 @@ if (WIN32)
             -DCMAKE_BUILD_TYPE:STRING=Release
             -DCMAKE_VERBOSE_MAKEFILE:BOOL=OFF
             -DCMAKE_INSTALL_PREFIX:STRING=${jpeg_INSTALL}
+            ${ADDITIONAL_EXTERNAL_PROJECT_PARAMS}
+        BUILD_BYPRODUCTS ${jpeg_STATIC_LIBRARIES}
     )
 
     ExternalProject_Add_Step(jpeg copy_jconfig
@@ -48,24 +51,24 @@ if (WIN32)
         DEPENDERS build
     )
 
-else()
-    ExternalProject_Add(jpeg
-        PREFIX jpeg
-        URL ${jpeg_URL}
-        URL_HASH ${jpeg_HASH}
-        INSTALL_DIR ${jpeg_INSTALL}
-        DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
-        BUILD_COMMAND make
-        INSTALL_COMMAND make install
-        CONFIGURE_COMMAND
-            ${jpeg_BUILD}/configure
-            --prefix=${jpeg_INSTALL}
-            --enable-shared=yes
-	    CFLAGS=-fPIC
-        BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/jpeg/install/lib/libjpeg.a
-    )
+#else()
+#    ExternalProject_Add(jpeg
+#        PREFIX jpeg
+#        URL ${jpeg_URL}
+#        URL_HASH ${jpeg_HASH}
+#        INSTALL_DIR ${jpeg_INSTALL}
+#        DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
+#        BUILD_COMMAND make
+#        INSTALL_COMMAND make install
+#        CONFIGURE_COMMAND
+#            ${jpeg_BUILD}/configure
+#            --prefix=${jpeg_INSTALL}
+#            --enable-shared=yes
+#	    CFLAGS=-fPIC
+#        BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/jpeg/install/lib/libjpeg.a
+#    )
   
-endif()
+#endif()
 
 # put jpeg includes in the directory where they are expected
 add_custom_target(jpeg_create_destination_dir

@@ -10,8 +10,11 @@ set(farmhash_HEADERS
     "${farmhash_BUILD}/src/farmhash.h"
 )
 
-if(WIN32)
+if( WIN32 )
   set(farmhash_STATIC_LIBRARIES ${farmhash_INSTALL}/lib/farmhash.lib)
+else()
+  set(farmhash_STATIC_LIBRARIES ${farmhash_INSTALL}/lib/libfarmhash.a)
+endif()
 
   ExternalProject_Add(farmhash
       PREFIX farmhash
@@ -24,25 +27,28 @@ if(WIN32)
       CMAKE_CACHE_ARGS
           -DCMAKE_BUILD_TYPE:STRING=Release
           -DCMAKE_VERBOSE_MAKEFILE:BOOL=OFF
-          -DCMAKE_INSTALL_PREFIX:STRING=${farmhash_INSTALL})
-else()
-  set(farmhash_STATIC_LIBRARIES ${farmhash_INSTALL}/lib/libfarmhash.a)
-
-  ExternalProject_Add(farmhash
-      PREFIX farmhash
-      URL ${farmhash_URL}
-      URL_HASH ${farmhash_HASH}
-      DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
-      BUILD_COMMAND make
-      INSTALL_COMMAND make . install
+          -DCMAKE_INSTALL_PREFIX:STRING=${farmhash_INSTALL}
+          ${ADDITIONAL_EXTERNAL_PROJECT_PARAMS}
       BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/farmhash/install/lib/libfarmhash.a
-      CONFIGURE_COMMAND
-          ${farmhash_BUILD}/configure
-          --prefix=${farmhash_INSTALL}
-          --enable-shared=yes
-          CXXFLAGS=-fPIC)
+)
+#else()
+#  set(farmhash_STATIC_LIBRARIES ${farmhash_INSTALL}/lib/libfarmhash.a)
 
-endif()
+#  ExternalProject_Add(farmhash
+#      PREFIX farmhash
+#      URL ${farmhash_URL}
+#      URL_HASH ${farmhash_HASH}
+#      DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
+#      BUILD_COMMAND make
+#      INSTALL_COMMAND make . install
+#      BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/farmhash/install/lib/libfarmhash.a
+#      CONFIGURE_COMMAND
+#          ${farmhash_BUILD}/configure
+#          --prefix=${farmhash_INSTALL}
+#          --enable-shared=yes
+#          CXXFLAGS=-fPIC)
+
+#endif()
 
 # put farmhash includes in the directory where they are expected
 add_custom_target(farmhash_create_destination_dir

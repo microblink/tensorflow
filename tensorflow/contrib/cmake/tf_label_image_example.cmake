@@ -21,7 +21,7 @@ if( NOT tensorflow_SEPARATE_STATIC_LIBS )
     )
 
     # for some reason, this is not added automatically
-    add_dependencies( tf_benchmark tf_protos_cc )
+    add_dependencies( tf_benchmark tf_core_lib tf_core_cpu tf_core_framework tf_core_kernels tf_cc_framework tf_cc_ops tf_core_ops tf_core_direct_session tf_protos_cc )
 
 else()
     add_executable(tf_benchmark

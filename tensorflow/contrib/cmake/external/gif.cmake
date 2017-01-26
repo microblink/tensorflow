@@ -15,6 +15,11 @@ if(WIN32)
 
   set(gif_STATIC_LIBRARIES ${gif_INSTALL}/lib/giflib.lib)
 
+else()
+    set(gif_STATIC_LIBRARIES ${gif_INSTALL}/lib/libgiflib.a)
+    set(ENV{CFLAGS} "$ENV{CFLAGS} -fPIC")
+endif()
+
   ExternalProject_Add(gif
       PREFIX gif
       URL ${gif_URL}
@@ -26,6 +31,8 @@ if(WIN32)
           -DCMAKE_BUILD_TYPE:STRING=Release
           -DCMAKE_VERBOSE_MAKEFILE:BOOL=OFF
           -DCMAKE_INSTALL_PREFIX:STRING=${gif_INSTALL}
+          ${ADDITIONAL_EXTERNAL_PROJECT_PARAMS}
+      BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/gif/install/lib/libgif.a
   )
 
   ExternalProject_Add_Step(gif copy_unistd
@@ -35,28 +42,28 @@ if(WIN32)
       DEPENDERS build
   )
 
-else()
+#else()
 
-  set(gif_STATIC_LIBRARIES ${gif_INSTALL}/lib/libgif.a)
-  set(ENV{CFLAGS} "$ENV{CFLAGS} -fPIC")
+#  set(gif_STATIC_LIBRARIES ${gif_INSTALL}/lib/libgif.a)
+#  set(ENV{CFLAGS} "$ENV{CFLAGS} -fPIC")
 
-  ExternalProject_Add(gif
-      PREFIX gif
-      URL ${gif_URL}
-      URL_HASH ${gif_HASH}
-      INSTALL_DIR ${gif_INSTALL}
-      DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
-      BUILD_COMMAND make
-      INSTALL_COMMAND make install
-      CONFIGURE_COMMAND
-          ${CMAKE_CURRENT_BINARY_DIR}/gif/src/gif/configure
-          --with-pic
-          --prefix=${gif_INSTALL}
-         --enable-shared=yes
-      BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/gif/install/lib/libgif.a
-  )
+#  ExternalProject_Add(gif
+#      PREFIX gif
+#      URL ${gif_URL}
+#      URL_HASH ${gif_HASH}
+#      INSTALL_DIR ${gif_INSTALL}
+#      DOWNLOAD_DIR "${DOWNLOAD_LOCATION}"
+#      BUILD_COMMAND make
+#      INSTALL_COMMAND make install
+#      CONFIGURE_COMMAND
+#          ${CMAKE_CURRENT_BINARY_DIR}/gif/src/gif/configure
+#          --with-pic
+#          --prefix=${gif_INSTALL}
+#         --enable-shared=yes
+#      BUILD_BYPRODUCTS ${CMAKE_BINARY_DIR}/gif/install/lib/libgif.a
+#  )
 
-endif()
+#endif()
 
 # put gif includes in the directory where they are expected
 add_custom_target(gif_create_destination_dir
