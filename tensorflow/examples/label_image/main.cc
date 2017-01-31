@@ -385,6 +385,7 @@ void print_help() {
             "                        --img-folder=path/to/images/folder \n"
             "                        --input-layer-name=INPUT_LAYER_NAME \n"
             "                        --output-layer-name=OUTPUT_LAYER_NAME \n"
+            "                       [--output-file=output_json_name.json] \n"
             "                       [--model-labels=path/to/model-labels.txt] \n"
             "                       [--input-size=widthxheight] \n"
             "                       [--wanted-input-channels=3] \n"
@@ -420,6 +421,7 @@ int main(int argc, char* argv[]) {
   std::string input_channels_str = params.getParam( "wanted-input-channels" );
   std::string input_mean_str = params.getParam( "input-mean" );
   std::string input_std_str = params.getParam( "input-std" );
+  std::string output_json_name   =  params.getParam( "output-file"           );
   bool        dump_image_info    = !params.getParam( "dump-image-info"       ).empty();
 
   auto required_params = { input_layer, output_layer, image_root, graph_path };
@@ -698,10 +700,15 @@ int main(int argc, char* argv[]) {
 
     writer.EndObject();
 
-    FILE* f_output = fopen( "tensorflow_bench.json", "wt" );
+    if ( output_json_name.empty() ) {
+        output_json_name = "tensorflow_bench.json";
+    }
+
+    std::puts( buffer.GetString() );
+    FILE* f_output = std::fopen( output_json_name.c_str(), "wt" );
     if( f_output != nullptr ) {
-        fprintf( f_output, "%s\n", buffer.GetString() );
-        fclose( f_output );
+        std::fputs( buffer.GetString(), f_output );
+        std::fclose( f_output );
     } else {
         LOG( ERROR ) << "Failed to open tensorflow_bench.json for writing";
     }
